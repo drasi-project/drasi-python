@@ -12,7 +12,9 @@ around Drasi's embeddable engine (`drasi-lib`) and its plugin host SDK
 - **Python-defined components** — define a reaction as a Python callback, or a
   source you push changes into from your own code. No Rust required.
 
-> Status: early development. See `docs/` for design notes.
+> Status: early development. The engine, continuous queries,
+> Python-defined sources and reactions, and the full plugin
+> install path are implemented and tested.
 
 ## Install
 
@@ -22,6 +24,8 @@ pip install drasi-lib
 
 ## Quickstart
 
+Push changes from your own code and react to the results — no plugins needed:
+
 ```python
 import asyncio
 from drasi import Drasi
@@ -29,26 +33,74 @@ from drasi import Drasi
 
 async def main() -> None:
     async with await Drasi.create("my-app") as drasi:
-        # Resolve a compatible build for this machine, download, verify and load it.
-        await drasi.install_plugin("source/mock")
         await drasi.start()
 
-        await drasi.add_source(
-            "mock", "counters", {"data_type": {"type": "counter"}, "interval_ms": 500}
-        )
+        await drasi.add_python_source("orders")
         await drasi.add_query(
-            "big",
-            "MATCH (c:Counter) WHERE c.value > 3 RETURN c.value AS value",
-            sources=["counters"],
+            "open",
+            "MATCH (o:Order) WHERE o.status = 'open' RETURN o.id AS id, o.total AS total",
+            ["orders"],
         )
 
-        async for event in drasi.query_events("big"):
-            for diff in event.results:
-                print(diff.kind, diff.data)
+        def on_results(event):
+            for diff in event["results"]:
+                print(diff["type"], diff.get("data"))
+
+        await drasi.add_python_reaction("watch", ["open"], on_results)
+
+        await drasi.push_change(
+            "orders",
+            {
+                "op": "insert",
+                "id": "o1",
+                "labels": ["Order"],
+                "properties": {"id": "o1", "status": "open", "total": 42},
+            },
+        )
+        await asyncio.sleep(0.5)
+        print(await drasi.get_query_results("open"))
 
 
 asyncio.run(main())
 ```
+
+Three things that are easy to get wrong:
+
+- Call `start()` **first**, then add components; they auto-start individually.
+  Adding everything and then calling `start()` also works, but logs a spurious
+  "already running" error for each component.
+- Drasi's Cypher dialect uses **single-quoted** string literals.
+- A change's `id` is the graph **key**, not a property. A query selecting `o.id`
+  reads a property of that name, so emit it explicitly.
+
+`add_query` returns once the query is provisioned; it finishes starting in the
+background, so reading results immediately can raise "is not running". Poll
+`list_queries()` for `Running` if you need to read straight away.
+
+## Using a plugin
+
+`install_plugin()` resolves the build that is compatible with your machine,
+downloads it, verifies it and loads it:
+
+```python
+async with await Drasi.create("my-app") as drasi:
+    await drasi.install_plugin("source/mock")
+    await drasi.start()
+
+    await drasi.add_source("mock", "counters", {"dataType": {"type": "counter"}, "intervalMs": 500})
+    await drasi.add_query("counts", "MATCH (c:Counter) RETURN c.value AS value", ["counters"])
+```
+
+Browse what is available first, if you like:
+
+```python
+for plugin in await drasi.search_plugins():
+    print(plugin["reference"])  # e.g. source/postgres, reaction/http
+```
+
+Plugin configuration keys are defined by the plugin itself, so they are passed
+through untouched — `dataType` above is the mock source's own spelling. Drasi's
+own API is snake_case, and accepts the Node.js camelCase spellings as aliases.
 
 ## Plugins
 
@@ -70,14 +122,14 @@ See [`docs/plugins.md`](./docs/plugins.md).
 ## Development
 
 ```bash
-uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python maturin pytest pytest-asyncio pytest-timeout ruff
-VIRTUAL_ENV="$PWD/.venv" .venv/bin/maturin develop
-.venv/bin/pytest
+make venv        # create .venv with a managed Python and the dev tooling
+make develop     # build the native extension and install it editable
+make test        # unit tests + hermetic end-to-end tests
+make test-oci    # download and install real plugins from ghcr.io
 ```
 
 Building requires a Rust toolchain. The optional `rocksdb` feature additionally
-requires `libclang` and a C++ toolchain.
+requires `libclang` and a C++ toolchain. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## License
 

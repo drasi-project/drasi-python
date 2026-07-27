@@ -1,0 +1,197 @@
+# Copyright 2026 The Drasi Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: astral-sh/setup-uv@v6
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install libclang for the RocksDB bindgen step
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
+
+      - name: Set up Python tooling
+        run: |
+          uv venv --python 3.12 .venv
+          uv pip install --python .venv/bin/python maturin pytest pytest-asyncio pytest-timeout ruff
+
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+        env:
+          PYO3_PYTHON: ${{ github.workspace }}/.venv/bin/python
+      - run: .venv/bin/ruff check .
+      - run: .venv/bin/ruff format --check .
+
+  registry-pins:
+    name: Registry pin drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # Published plugins record the Drasi versions they were built against, and
+      # this host rejects anything that does not match on major.minor. If our
+      # pins drift, every published plugin silently becomes uninstallable.
+      - run: python3 scripts/check_registry_pins.py
+
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: astral-sh/setup-uv@v6
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install libclang (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
+
+      - name: Point bindgen at LLVM (Windows)
+        if: runner.os == 'Windows'
+        run: echo "LIBCLANG_PATH=$((gcm clang).source -replace 'clang.exe')" >> $env:GITHUB_ENV
+
+      - name: Set up the virtualenv
+        shell: bash
+        run: |
+          uv venv --python 3.12 .venv
+          uv pip install --python "$(ls .venv/bin/python .venv/Scripts/python.exe 2>/dev/null | head -1)" \
+            maturin pytest pytest-asyncio pytest-timeout
+
+      - name: Resolve interpreter paths
+        shell: bash
+        run: |
+          if [ -d .venv/Scripts ]; then
+            echo "VENV_BIN=$PWD/.venv/Scripts" >> "$GITHUB_ENV"
+            echo "PY=$PWD/.venv/Scripts/python.exe" >> "$GITHUB_ENV"
+          else
+            echo "VENV_BIN=$PWD/.venv/bin" >> "$GITHUB_ENV"
+            echo "PY=$PWD/.venv/bin/python" >> "$GITHUB_ENV"
+          fi
+
+      - name: Rust unit tests
+        shell: bash
+        env:
+          PYO3_PYTHON: ${{ env.PY }}
+        run: cargo test
+
+      - name: Build the extension
+        shell: bash
+        env:
+          VIRTUAL_ENV: ${{ github.workspace }}/.venv
+        run: "$VENV_BIN/maturin" develop
+
+      - name: Tier 0 and 1 — unit and hermetic end-to-end tests
+        shell: bash
+        run: "$VENV_BIN/pytest" -m "not plugins and not oci and not docker" -v
+
+      # Cache the built cdylib plugins: building them from crates.io is by far
+      # the slowest step, and they only change when their pinned versions do.
+      - name: Cache the test plugins
+        id: plugin-cache
+        uses: actions/cache@v4
+        with:
+          path: plugins
+          key: plugins-${{ runner.os }}-${{ hashFiles('scripts/build_plugins.py') }}
+
+      - name: Build the test plugins
+        if: steps.plugin-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: "$PY" scripts/build_plugins.py
+
+      - name: Tier 2a — locally built cdylib plugins
+        shell: bash
+        run: "$VENV_BIN/pytest" -m plugins -v
+
+      - name: Tier 2b and 2c — download and install plugins from ghcr.io
+        shell: bash
+        env:
+          DRASI_OCI_TESTS: "1"
+        run: "$VENV_BIN/pytest" -m oci -v
+
+  docker:
+    name: Tier 3 — real backing services
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: astral-sh/setup-uv@v6
+      - uses: Swatinem/rust-cache@v2
+
+      - run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
+
+      - name: Set up the virtualenv
+        run: |
+          uv venv --python 3.12 .venv
+          uv pip install --python .venv/bin/python \
+            maturin pytest pytest-asyncio pytest-timeout testcontainers
+
+      - name: Build the extension
+        env:
+          VIRTUAL_ENV: ${{ github.workspace }}/.venv
+        run: .venv/bin/maturin develop
+
+      - name: Tier 3 — testcontainers
+        env:
+          DRASI_OCI_TESTS: "1"
+        run: .venv/bin/pytest -m docker -v
+
+  coverage:
+    name: Conversion and error coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: astral-sh/setup-uv@v6
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@cargo-llvm-cov
+
+      - run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
+      - run: uv venv --python 3.12 .venv
+
+      # The conversion and error layers are where a silent mistake turns into a
+      # wrong query result rather than a crash, so they are held to a high bar.
+      - name: Coverage gate
+        env:
+          PYO3_PYTHON: ${{ github.workspace }}/.venv/bin/python
+        run: |
+          cargo llvm-cov --lib \
+            --ignore-filename-regex '(engine|components|plugins|host|runtime|lib)\.rs$' \
+            --fail-under-lines 80
