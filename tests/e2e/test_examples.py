@@ -33,7 +33,8 @@ GUIDE = EXAMPLES / "README.md"
 
 
 def example_files() -> list[Path]:
-    return sorted(EXAMPLES.glob("*.py"))
+    """The runnable examples, excluding underscore-prefixed support modules."""
+    return sorted(p for p in EXAMPLES.glob("*.py") if not p.name.startswith("_"))
 
 
 def run_example(name: str, timeout: int = 300) -> str:
@@ -56,15 +57,16 @@ def test_the_guide_documents_every_example() -> None:
         assert example.name in guide, f"{example.name} is not mentioned in examples/README.md"
 
 
-def test_the_guide_does_not_document_examples_that_were_removed() -> None:
+def test_the_guide_does_not_reference_files_that_were_removed() -> None:
+    """Covers support modules as well as examples — anything the guide links to."""
     guide = GUIDE.read_text(encoding="utf-8")
     referenced = {
         line.split("`")[1]
         for line in guide.splitlines()
         if line.count("`") >= 2 and ".py" in line.split("`")[1]
     }
-    existing = {example.name for example in example_files()}
-    assert referenced <= existing, f"the guide references missing examples: {referenced - existing}"
+    missing = {name for name in referenced if not (EXAMPLES / name).exists()}
+    assert not missing, f"examples/README.md references missing files: {sorted(missing)}"
 
 
 def test_the_guide_does_not_promise_a_pypi_install() -> None:
@@ -96,6 +98,19 @@ def test_the_guide_only_invokes_tools_the_venv_actually_has() -> None:
     assert not missing, (
         f"examples/README.md tells you to run {sorted(missing)}, which `make venv` does not install"
     )
+
+
+def test_the_guide_only_references_make_targets_that_exist() -> None:
+    """Renaming a target should not silently invalidate the guide."""
+    guide = GUIDE.read_text(encoding="utf-8")
+    commands = "\n".join(re.findall(r"```bash\n(.*?)```", guide, flags=re.S))
+    referenced = set(re.findall(r"\bmake ([a-z][a-z0-9-]*)", commands))
+    assert referenced, "expected the guide to show some make commands"
+
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    defined = set(re.findall(r"^([a-z][a-z0-9-]*):", makefile, flags=re.M))
+    missing = referenced - defined
+    assert not missing, f"examples/README.md references missing make targets: {sorted(missing)}"
 
 
 def test_python_source_example_runs() -> None:

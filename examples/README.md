@@ -72,6 +72,8 @@ source .venv/bin/activate   # then plain `python examples/...` works
 | [`install_plugin.py`](./install_plugin.py) | Browse the registry, install a plugin, use it | network |
 | [`postgres_cdc.py`](./postgres_cdc.py) | React to a real Postgres database | Docker, network |
 
+`_throwaway_postgres.py` is support code for the last one, not an example.
+
 ### `python_source.py`
 
 The smallest useful program: define a source in Python, push order changes into
@@ -125,11 +127,15 @@ network access and later runs re-download it.
 
 ### `postgres_cdc.py`
 
-Starts a throwaway Postgres in Docker, installs the `source/postgres` plugin,
-and prints what the query sees as rows change via plain SQL.
+Installs the `source/postgres` plugin, points it at a database, and prints what
+the query sees as rows change via plain SQL.
+
+Starting the database is scaffolding rather than the point, so it lives in
+[`_throwaway_postgres.py`](./_throwaway_postgres.py). To run against your own
+database, pass your connection details to `add_source` and ignore that file.
 
 ```bash
-make examples-docker
+make example-postgres
 ```
 
 or, doing it by hand:
