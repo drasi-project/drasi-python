@@ -15,19 +15,21 @@
 //! The `Drasi` engine handle exposed to Python.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use drasi_lib::api::Query;
 use drasi_lib::config::{QueryJoinConfig, QueryJoinKeyConfig};
-use drasi_lib::DrasiLib;
+use drasi_lib::{ComponentStatus, DrasiLib};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyString};
+use pyo3::types::{PyDict, PyList, PyString};
 use pyo3_async_runtimes::tokio::future_into_py;
 use tokio::sync::Mutex;
 
-use crate::components::{PythonReaction, PythonSource, SharedSource};
-use crate::conversions::{json_to_py, source_change_from_py};
+use crate::components::{BoxedReaction, BoxedSource, PythonReaction, PythonSource, SharedSource};
+use crate::conversions::{json_to_py, py_to_json, source_change_from_py};
 use crate::errors::{engine_error, error, DrasiErrorCode};
+use crate::plugins::{self, LoadSummary, PluginHost, Resolved};
 
 /// Shared engine state.
 ///
@@ -38,6 +40,41 @@ pub struct Inner {
     pub core: DrasiLib,
     /// Python-defined sources, kept so `push_change` can reach them directly.
     pub python_sources: Mutex<HashMap<String, Arc<PythonSource>>>,
+    pub plugins: PluginHost,
+    /// Directory `install_plugin` writes to when the caller does not pick one.
+    default_plugin_dir: Mutex<Option<PathBuf>>,
+}
+
+impl Inner {
+    /// A per-engine directory for downloaded plugins.
+    ///
+    /// Downloads are kept out of the working directory, and separated per
+    /// engine so concurrent instances cannot overwrite each other's binaries.
+    async fn default_plugin_dir(&self) -> std::io::Result<PathBuf> {
+        let mut guard = self.default_plugin_dir.lock().await;
+        if let Some(existing) = guard.as_ref() {
+            return Ok(existing.clone());
+        }
+        let directory = std::env::temp_dir()
+            .join("drasi-python-plugins")
+            .join(sanitize(&self.id));
+        std::fs::create_dir_all(&directory)?;
+        *guard = Some(directory.clone());
+        Ok(directory)
+    }
+}
+
+/// Makes an engine id safe to use as a single path component.
+fn sanitize(id: &str) -> String {
+    id.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 /// An embedded Drasi engine.
@@ -68,6 +105,8 @@ impl Drasi {
                     id,
                     core,
                     python_sources: Mutex::new(HashMap::new()),
+                    plugins: PluginHost::new(),
+                    default_plugin_dir: Mutex::new(None),
                 }),
             })
         })
@@ -228,6 +267,426 @@ impl Drasi {
         })
     }
 
+    // ---------------------------------------------------------------- plugins
+
+    /// Discovers and loads every plugin in `directory`.
+    ///
+    /// `verify` maps a file name to its expected SHA-256. When supplied it acts
+    /// as an allowlist: files that are absent from the map, or whose hash does
+    /// not match, are skipped.
+    #[pyo3(signature = (directory, verify = None))]
+    fn load_plugins<'py>(
+        &self,
+        py: Python<'py>,
+        directory: PathBuf,
+        verify: Option<HashMap<String, String>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let summary = inner
+                .plugins
+                .load_dir(&inner.core, &inner.id, &directory, verify.as_ref())
+                .await
+                .map_err(plugin_error)?;
+            Python::attach(|py| summary_to_py(py, summary).map(Bound::unbind))
+        })
+    }
+
+    /// The plugin kinds currently registered, grouped by component type.
+    fn plugin_kinds<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let sources = inner.plugins.source_kinds().await;
+            let reactions = inner.plugins.reaction_kinds().await;
+            let bootstrap = inner.plugins.bootstrap_kinds().await;
+            Python::attach(|py| {
+                let kinds = PyDict::new(py);
+                kinds.set_item("sources", sources)?;
+                kinds.set_item("reactions", reactions)?;
+                kinds.set_item("bootstrap", bootstrap)?;
+                Ok(kinds.unbind())
+            })
+        })
+    }
+
+    /// The version and platform information plugins are matched against.
+    fn host_info<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        json_to_py(py, &plugins::describe_host())
+    }
+
+    /// Every plugin published to the registry, from its directory index.
+    #[pyo3(signature = (query = None))]
+    fn search_plugins<'py>(
+        &self,
+        py: Python<'py>,
+        query: Option<String>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let query = query.unwrap_or_default();
+        future_into_py(py, async move {
+            let client = plugins::registry_client(Vec::new(), false);
+            let found = client.search_plugins(&query).await.map_err(plugin_error)?;
+            Python::attach(|py| {
+                let results = PyList::empty(py);
+                for entry in found {
+                    let item = PyDict::new(py);
+                    item.set_item("reference", &entry.reference)?;
+                    item.set_item("full_reference", &entry.full_reference)?;
+                    let (plugin_type, kind) = entry
+                        .reference
+                        .split_once('/')
+                        .unwrap_or(("", entry.reference.as_str()));
+                    item.set_item("plugin_type", plugin_type)?;
+                    item.set_item("kind", kind)?;
+                    let versions = PyList::empty(py);
+                    for version in &entry.versions {
+                        let info = PyDict::new(py);
+                        info.set_item("version", &version.version)?;
+                        info.set_item("platforms", version.platforms.clone())?;
+                        versions.append(info)?;
+                    }
+                    item.set_item("versions", versions)?;
+                    results.append(item)?;
+                }
+                Ok(results.unbind())
+            })
+        })
+    }
+
+    /// Every tag published for a plugin repository, such as `source/postgres`.
+    fn list_plugin_tags<'py>(
+        &self,
+        py: Python<'py>,
+        repository: String,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        future_into_py(py, async move {
+            let client = plugins::registry_client(Vec::new(), false);
+            client.list_tags(&repository).await.map_err(plugin_error)
+        })
+    }
+
+    /// Resolves a reference to the newest build compatible with this host.
+    ///
+    /// Does not download anything.
+    fn resolve_plugin<'py>(
+        &self,
+        py: Python<'py>,
+        reference: String,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        future_into_py(py, async move {
+            let client = plugins::registry_client(Vec::new(), false);
+            let resolved = plugins::resolve(&client, &reference)
+                .await
+                .map_err(incompatible_plugin)?;
+            Python::attach(|py| resolved_to_py(py, &resolved).map(Bound::unbind))
+        })
+    }
+
+    /// Downloads, verifies, installs and loads a plugin.
+    ///
+    /// The newest build compatible with this host is selected automatically, so
+    /// callers do not need to know that plugins are published per platform.
+    #[pyo3(signature = (
+        reference,
+        *,
+        directory = None,
+        verify = false,
+        require_signed = false,
+        trusted_identities = None,
+        load = true,
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn install_plugin<'py>(
+        &self,
+        py: Python<'py>,
+        reference: String,
+        directory: Option<PathBuf>,
+        verify: bool,
+        require_signed: bool,
+        trusted_identities: Option<Vec<(String, String)>>,
+        load: bool,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let client = plugins::registry_client(
+                trusted_identities.unwrap_or_default(),
+                verify || require_signed,
+            );
+            let resolved = plugins::resolve(&client, &reference)
+                .await
+                .map_err(incompatible_plugin)?;
+
+            let directory = match directory {
+                Some(directory) => directory,
+                None => inner.default_plugin_dir().await.map_err(plugin_error)?,
+            };
+            tokio::fs::create_dir_all(&directory)
+                .await
+                .map_err(plugin_error)?;
+
+            let file_name = plugins::plugin_file_name(&resolved.plugin_type, &resolved.kind);
+            let download = client
+                .download_plugin(&resolved.reference, &directory, &file_name)
+                .await
+                .map_err(plugin_error)?;
+
+            let status = plugins::signature_status(&download.verification);
+            if require_signed && status != "verified" {
+                return Err(error(
+                    DrasiErrorCode::PluginSignatureInvalid,
+                    format!(
+                        "'{}' could not be verified (signature status: {status});                          pass require_signed=False to install it anyway",
+                        resolved.reference
+                    ),
+                ));
+            }
+
+            if load {
+                inner
+                    .plugins
+                    .load_file(&inner.core, &inner.id, &download.path)
+                    .await
+                    .map_err(incompatible_plugin)?;
+            }
+
+            Python::attach(|py| {
+                let result = resolved_to_py(py, &resolved)?;
+                result.set_item("path", download.path.to_string_lossy().as_ref())?;
+                result.set_item("verification", status)?;
+                result.set_item("loaded", load)?;
+                Ok(result.unbind())
+            })
+        })
+    }
+
+    /// The OpenAPI schema describing a source plugin's configuration.
+    fn source_config_schema<'py>(
+        &self,
+        py: Python<'py>,
+        kind: String,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let descriptor = inner
+                .plugins
+                .source_descriptor(&kind)
+                .await
+                .ok_or_else(|| {
+                    error(
+                        DrasiErrorCode::UnknownSourceKind,
+                        format!("no source plugin registered for kind '{kind}'"),
+                    )
+                })?;
+            let name = descriptor.config_schema_name().to_string();
+            let schema = descriptor.config_schema_json();
+            Python::attach(|py| schema_to_py(py, &name, &schema).map(Bound::unbind))
+        })
+    }
+
+    /// The OpenAPI schema describing a reaction plugin's configuration.
+    fn reaction_config_schema<'py>(
+        &self,
+        py: Python<'py>,
+        kind: String,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let descriptor = inner
+                .plugins
+                .reaction_descriptor(&kind)
+                .await
+                .ok_or_else(|| {
+                    error(
+                        DrasiErrorCode::UnknownReactionKind,
+                        format!("no reaction plugin registered for kind '{kind}'"),
+                    )
+                })?;
+            let name = descriptor.config_schema_name().to_string();
+            let schema = descriptor.config_schema_json();
+            Python::attach(|py| schema_to_py(py, &name, &schema).map(Bound::unbind))
+        })
+    }
+
+    /// The OpenAPI schema describing a bootstrap plugin's configuration.
+    fn bootstrap_config_schema<'py>(
+        &self,
+        py: Python<'py>,
+        kind: String,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let descriptor = inner
+                .plugins
+                .bootstrap_descriptor(&kind)
+                .await
+                .ok_or_else(|| {
+                    error(
+                        DrasiErrorCode::UnknownBootstrapKind,
+                        format!("no bootstrap plugin registered for kind '{kind}'"),
+                    )
+                })?;
+            let name = descriptor.config_schema_name().to_string();
+            let schema = descriptor.config_schema_json();
+            Python::attach(|py| schema_to_py(py, &name, &schema).map(Bound::unbind))
+        })
+    }
+
+    // ------------------------------------------------ plugin-backed components
+
+    /// Adds a source provided by a loaded plugin.
+    #[pyo3(signature = (kind, id, config = None, *, auto_start = true))]
+    fn add_source<'py>(
+        &self,
+        py: Python<'py>,
+        kind: String,
+        id: String,
+        config: Option<&Bound<'py, PyAny>>,
+        auto_start: bool,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let config = match config {
+            Some(value) => py_to_json(value)?,
+            None => serde_json::json!({}),
+        };
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let descriptor = inner
+                .plugins
+                .source_descriptor(&kind)
+                .await
+                .ok_or_else(|| unknown_kind(DrasiErrorCode::UnknownSourceKind, "source", &kind))?;
+            let source = descriptor
+                .create_source(&id, &config, auto_start)
+                .await
+                .map_err(engine_error)?;
+            inner
+                .core
+                .add_source_with_metadata(
+                    BoxedSource(source),
+                    HashMap::from([("pluginKind".to_string(), kind)]),
+                )
+                .await
+                .map_err(engine_error)
+        })
+    }
+
+    /// Adds a reaction provided by a loaded plugin.
+    #[pyo3(signature = (kind, id, query_ids, config = None, *, auto_start = true))]
+    fn add_reaction<'py>(
+        &self,
+        py: Python<'py>,
+        kind: String,
+        id: String,
+        query_ids: Vec<String>,
+        config: Option<&Bound<'py, PyAny>>,
+        auto_start: bool,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let config = match config {
+            Some(value) => py_to_json(value)?,
+            None => serde_json::json!({}),
+        };
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let descriptor = inner
+                .plugins
+                .reaction_descriptor(&kind)
+                .await
+                .ok_or_else(|| {
+                    unknown_kind(DrasiErrorCode::UnknownReactionKind, "reaction", &kind)
+                })?;
+            let reaction = descriptor
+                .create_reaction(&id, query_ids, &config, auto_start)
+                .await
+                .map_err(engine_error)?;
+            inner
+                .core
+                .add_reaction_with_metadata(
+                    BoxedReaction(reaction),
+                    HashMap::from([("pluginKind".to_string(), kind)]),
+                )
+                .await
+                .map_err(engine_error)
+        })
+    }
+
+    #[pyo3(signature = (id, *, cleanup = false))]
+    fn remove_source<'py>(
+        &self,
+        py: Python<'py>,
+        id: String,
+        cleanup: bool,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            inner
+                .core
+                .remove_source(&id, cleanup)
+                .await
+                .map_err(engine_error)?;
+            inner.python_sources.lock().await.remove(&id);
+            Ok(())
+        })
+    }
+
+    fn start_source<'py>(&self, py: Python<'py>, id: String) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            inner.core.start_source(&id).await.map_err(engine_error)
+        })
+    }
+
+    fn stop_source<'py>(&self, py: Python<'py>, id: String) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            inner.core.stop_source(&id).await.map_err(engine_error)
+        })
+    }
+
+    fn list_sources<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let sources = inner.core.list_sources().await.map_err(engine_error)?;
+            Ok(status_pairs(sources))
+        })
+    }
+
+    #[pyo3(signature = (id, *, cleanup = false))]
+    fn remove_reaction<'py>(
+        &self,
+        py: Python<'py>,
+        id: String,
+        cleanup: bool,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            inner
+                .core
+                .remove_reaction(&id, cleanup)
+                .await
+                .map_err(engine_error)
+        })
+    }
+
+    fn start_reaction<'py>(&self, py: Python<'py>, id: String) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            inner.core.start_reaction(&id).await.map_err(engine_error)
+        })
+    }
+
+    fn stop_reaction<'py>(&self, py: Python<'py>, id: String) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            inner.core.stop_reaction(&id).await.map_err(engine_error)
+        })
+    }
+
+    fn list_reactions<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let reactions = inner.core.list_reactions().await.map_err(engine_error)?;
+            Ok(status_pairs(reactions))
+        })
+    }
+
     // ------------------------------------------------- Python-defined sources
 
     /// Registers a source that you push changes into with `push_change`.
@@ -383,4 +842,73 @@ fn parse_joins(joins: &Bound<'_, PyAny>) -> PyResult<Vec<QueryJoinConfig>> {
         parsed.push(QueryJoinConfig { id, keys });
     }
     Ok(parsed)
+}
+
+/// Converts `(id, status)` pairs into the shape returned to Python.
+fn status_pairs(entries: Vec<(String, ComponentStatus)>) -> Vec<(String, String)> {
+    entries
+        .into_iter()
+        .map(|(id, status)| (id, format!("{status:?}")))
+        .collect()
+}
+
+fn summary_to_py(py: Python<'_>, summary: LoadSummary) -> PyResult<Bound<'_, PyDict>> {
+    let result = PyDict::new(py);
+    result.set_item("plugins", summary.plugins)?;
+    result.set_item("sources", summary.sources)?;
+    result.set_item("reactions", summary.reactions)?;
+    result.set_item("bootstrap", summary.bootstrap)?;
+    Ok(result)
+}
+
+fn resolved_to_py<'py>(py: Python<'py>, resolved: &Resolved) -> PyResult<Bound<'py, PyDict>> {
+    let result = PyDict::new(py);
+    result.set_item("reference", &resolved.reference)?;
+    result.set_item("kind", &resolved.kind)?;
+    result.set_item("plugin_type", &resolved.plugin_type)?;
+    result.set_item("version", &resolved.version)?;
+    result.set_item("target_triple", &resolved.target_triple)?;
+    result.set_item("sdk_version", &resolved.sdk_version)?;
+    result.set_item("core_version", &resolved.core_version)?;
+    result.set_item("lib_version", &resolved.lib_version)?;
+    Ok(result)
+}
+
+fn schema_to_py<'py>(py: Python<'py>, name: &str, schema: &str) -> PyResult<Bound<'py, PyDict>> {
+    let parsed: serde_json::Value = serde_json::from_str(schema).map_err(|err| {
+        error(
+            DrasiErrorCode::ConfigInvalid,
+            format!("plugin returned an unparsable config schema: {err}"),
+        )
+    })?;
+    let result = PyDict::new(py);
+    result.set_item("name", name)?;
+    result.set_item("schema", json_to_py(py, &parsed)?)?;
+    Ok(result)
+}
+
+fn unknown_kind(code: DrasiErrorCode, component: &str, kind: &str) -> PyErr {
+    error(
+        code,
+        format!(
+            "unknown {component} kind '{kind}'; load a plugin that provides it, \
+             for example with install_plugin('{component}/{kind}')"
+        ),
+    )
+}
+
+/// A registry or loader failure.
+fn plugin_error(err: impl std::fmt::Display) -> PyErr {
+    error(DrasiErrorCode::PluginNotFound, err.to_string())
+}
+
+/// A plugin that cannot be used by this host.
+///
+/// Reports what the host offers, since the usual cause is an architecture or
+/// version mismatch that is otherwise invisible from Python.
+fn incompatible_plugin(err: impl std::fmt::Display) -> PyErr {
+    error(
+        DrasiErrorCode::PluginIncompatible,
+        format!("{err}\nthis host is {}", plugins::describe_host()),
+    )
 }

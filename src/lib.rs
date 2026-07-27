@@ -24,6 +24,7 @@ mod conversions;
 mod engine;
 mod errors;
 mod host;
+mod plugins;
 mod runtime;
 
 use pyo3::prelude::*;

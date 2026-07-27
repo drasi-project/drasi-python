@@ -46,6 +46,31 @@ async def wait_for(
     raise AssertionError(f"timed out after {timeout}s waiting for {description}")
 
 
+async def wait_for_query_running(
+    engine: Drasi,
+    query_id: str,
+    *,
+    timeout: float = DEFAULT_TIMEOUT,
+) -> None:
+    """Waits until a query reports `Running`.
+
+    `add_query` provisions a query and returns; auto-start then happens in the
+    background. Reading results before that completes raises "is not running",
+    so tests wait for the transition rather than racing it.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    statuses: list[tuple[str, str]] = []
+    while loop.time() < deadline:
+        statuses = await engine.list_queries()
+        if any(entry == query_id and status == "Running" for entry, status in statuses):
+            return
+        await asyncio.sleep(POLL_INTERVAL)
+    raise AssertionError(
+        f"timed out after {timeout}s waiting for query {query_id!r} to run; last saw {statuses!r}"
+    )
+
+
 async def wait_for_rows(
     engine: Drasi,
     query_id: str,

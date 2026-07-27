@@ -14,8 +14,6 @@
 
 """Embed the Drasi continuous-query engine directly in your Python application."""
 
-from __future__ import annotations
-
 from ._drasi import (
     DRASI_CORE_VERSION,
     DRASI_LIB_VERSION,

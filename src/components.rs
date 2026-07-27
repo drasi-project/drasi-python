@@ -29,8 +29,8 @@ use drasi_lib::channels::{QueryResult, SubscriptionResponse};
 use drasi_lib::config::SourceSubscriptionSettings;
 use drasi_lib::context::{ReactionRuntimeContext, SourceRuntimeContext};
 use drasi_lib::{
-    ComponentStatus, Reaction, ReactionBase, ReactionBaseParams, Source, SourceBase,
-    SourceBaseParams,
+    BootstrapProvider, ComponentStatus, Reaction, ReactionBase, ReactionBaseParams, Source,
+    SourceBase, SourceBaseParams,
 };
 use pyo3::prelude::*;
 use serde_json::Value;
@@ -160,6 +160,136 @@ impl Source for SharedSource {
 
     async fn initialize(&self, context: SourceRuntimeContext) {
         self.0.initialize(context).await;
+    }
+}
+
+/// Adapts a `Box<dyn Source>` produced by a plugin descriptor.
+///
+/// `DrasiLib::add_source` takes `impl Source`, and `Box<dyn Source>` does not
+/// itself implement the trait, so plugin-created sources are wrapped here.
+pub struct BoxedSource(pub Box<dyn Source>);
+
+#[async_trait]
+impl Source for BoxedSource {
+    fn id(&self) -> &str {
+        self.0.id()
+    }
+
+    fn type_name(&self) -> &str {
+        self.0.type_name()
+    }
+
+    fn properties(&self) -> HashMap<String, Value> {
+        self.0.properties()
+    }
+
+    fn dispatch_mode(&self) -> drasi_lib::DispatchMode {
+        self.0.dispatch_mode()
+    }
+
+    fn auto_start(&self) -> bool {
+        self.0.auto_start()
+    }
+
+    fn supports_replay(&self) -> bool {
+        self.0.supports_replay()
+    }
+
+    fn describe_schema(&self) -> Option<drasi_lib::schema::SourceSchema> {
+        self.0.describe_schema()
+    }
+
+    async fn start(&self) -> Result<()> {
+        self.0.start().await
+    }
+
+    async fn stop(&self) -> Result<()> {
+        self.0.stop().await
+    }
+
+    async fn status(&self) -> ComponentStatus {
+        self.0.status().await
+    }
+
+    async fn subscribe(
+        &self,
+        settings: SourceSubscriptionSettings,
+    ) -> Result<SubscriptionResponse> {
+        self.0.subscribe(settings).await
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    async fn deprovision(&self) -> Result<()> {
+        self.0.deprovision().await
+    }
+
+    async fn initialize(&self, context: SourceRuntimeContext) {
+        self.0.initialize(context).await;
+    }
+
+    async fn set_bootstrap_provider(&self, provider: Box<dyn BootstrapProvider + 'static>) {
+        self.0.set_bootstrap_provider(provider).await;
+    }
+}
+
+/// Adapts a `Box<dyn Reaction>` produced by a plugin descriptor.
+pub struct BoxedReaction(pub Box<dyn Reaction>);
+
+#[async_trait]
+impl Reaction for BoxedReaction {
+    fn id(&self) -> &str {
+        self.0.id()
+    }
+
+    fn type_name(&self) -> &str {
+        self.0.type_name()
+    }
+
+    fn properties(&self) -> HashMap<String, Value> {
+        self.0.properties()
+    }
+
+    fn query_ids(&self) -> Vec<String> {
+        self.0.query_ids()
+    }
+
+    fn auto_start(&self) -> bool {
+        self.0.auto_start()
+    }
+
+    fn is_durable(&self) -> bool {
+        self.0.is_durable()
+    }
+
+    fn needs_snapshot_on_fresh_start(&self) -> bool {
+        self.0.needs_snapshot_on_fresh_start()
+    }
+
+    async fn initialize(&self, context: ReactionRuntimeContext) {
+        self.0.initialize(context).await;
+    }
+
+    async fn start(&self) -> Result<()> {
+        self.0.start().await
+    }
+
+    async fn stop(&self) -> Result<()> {
+        self.0.stop().await
+    }
+
+    async fn status(&self) -> ComponentStatus {
+        self.0.status().await
+    }
+
+    async fn enqueue_query_result(&self, result: QueryResult) -> Result<()> {
+        self.0.enqueue_query_result(result).await
+    }
+
+    async fn deprovision(&self) -> Result<()> {
+        self.0.deprovision().await
     }
 }
 
