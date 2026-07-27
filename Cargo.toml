@@ -13,11 +13,10 @@ name = "_drasi"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.29", features = [
-    "extension-module",
-    "abi3-py310",
-    "generate-import-lib",
-] }
+# `extension-module` is deliberately NOT enabled here. maturin turns it on via
+# `[tool.maturin] features`, which keeps `cargo test` and `cargo clippy --all-targets`
+# able to link against libpython.
+pyo3 = { version = "0.29", features = ["abi3-py310", "generate-import-lib"] }
 pyo3-async-runtimes = { version = "0.29", features = ["tokio-runtime"] }
 
 # Drasi engine + plugin host SDK.

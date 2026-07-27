@@ -19,6 +19,8 @@
 //! boundary (`Box::into_raw` / `Box::from_raw`), which is only sound while both
 //! sides use the process-global system allocator.
 
+mod components;
+mod conversions;
 mod engine;
 mod errors;
 mod host;
