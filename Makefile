@@ -47,6 +47,14 @@ examples: ## Run the examples that need no Docker
 	$(PY) examples/python_source.py
 	$(PY) examples/install_plugin.py
 
+.PHONY: docker-deps
+docker-deps: ## Install the packages the Docker-backed tier needs
+	uv pip install --python $(PY) "testcontainers>=4.15" "psycopg[binary]"
+
+.PHONY: examples-docker
+examples-docker: docker-deps ## Run the Postgres example (needs Docker)
+	$(PY) examples/postgres_cdc.py
+
 .PHONY: test
 test: ## Run unit tests and tier 1 (hermetic) end-to-end tests
 	$(PYTEST) -m "not plugins and not oci and not docker"
@@ -60,11 +68,11 @@ test-oci: ## Tier 2b/2c: download and install plugins from ghcr.io
 	DRASI_OCI_TESTS=1 $(PYTEST) -m oci
 
 .PHONY: test-docker
-test-docker: ## Tier 3: real backing services via testcontainers
-	$(PYTEST) -m docker
+test-docker: docker-deps ## Tier 3: real backing services via testcontainers
+	DRASI_OCI_TESTS=1 $(PYTEST) -m docker
 
 .PHONY: test-all
-test-all: plugins ## Every tier
+test-all: plugins docker-deps ## Every tier
 	DRASI_OCI_TESTS=1 $(PYTEST)
 
 .PHONY: lint

@@ -61,7 +61,10 @@ async def main() -> None:
         from testcontainers.community.postgres import PostgresContainer
     except ImportError:
         raise SystemExit(
-            'this example needs: pip install "testcontainers>=4.15" "psycopg[binary]"'
+            "this example needs extra packages:\n"
+            "  make examples-docker\n"
+            "or:\n"
+            '  uv pip install --python .venv/bin/python "testcontainers>=4.15" "psycopg[binary]"'
         ) from None
 
     container = PostgresContainer("postgres:16-alpine", driver=None).with_command(

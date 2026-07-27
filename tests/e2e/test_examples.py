@@ -20,6 +20,7 @@ thing anyone runs against a package that is not on PyPI yet.
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -70,6 +71,31 @@ def test_the_guide_does_not_promise_a_pypi_install() -> None:
     """The package is not released yet; `pip install drasi-lib` would just fail."""
     guide = GUIDE.read_text(encoding="utf-8").lower()
     assert "not published to pypi yet" in guide
+
+
+def test_the_guide_only_invokes_tools_the_venv_actually_has() -> None:
+    """`uv venv` does not install pip, so `.venv/bin/pip` is not a thing.
+
+    Any `.venv/bin/<tool>` the guide tells you to *run* must exist after
+    `make venv && make develop`. Only fenced shell blocks are checked, and the
+    fallback block that builds the environment with `python -m venv` is excluded
+    because that route does provide pip.
+    """
+    venv_bin = ROOT / ".venv" / "bin"
+    if not venv_bin.is_dir():
+        pytest.skip("run `make venv && make develop` first")
+
+    guide = GUIDE.read_text(encoding="utf-8")
+    # The <details> block documents the plain `python -m venv` route.
+    main_path = re.sub(r"<details>.*?</details>", "", guide, flags=re.S)
+    commands = "\n".join(re.findall(r"```bash\n(.*?)```", main_path, flags=re.S))
+
+    invoked = set(re.findall(r"\.venv/bin/([A-Za-z0-9_.-]+)", commands))
+    assert invoked, "expected the guide to show some .venv commands"
+    missing = {tool for tool in invoked if not (venv_bin / tool).exists()}
+    assert not missing, (
+        f"examples/README.md tells you to run {sorted(missing)}, which `make venv` does not install"
+    )
 
 
 def test_python_source_example_runs() -> None:

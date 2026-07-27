@@ -34,6 +34,10 @@ python3.12 -m venv .venv
 VIRTUAL_ENV="$PWD/.venv" .venv/bin/maturin develop
 ```
 
+Built this way the environment has `pip`, so anywhere this guide runs
+`uv pip install --python .venv/bin/python ...` you can use
+`.venv/bin/pip install ...` instead.
+
 </details>
 
 Check it worked:
@@ -125,9 +129,19 @@ Starts a throwaway Postgres in Docker, installs the `source/postgres` plugin,
 and prints what the query sees as rows change via plain SQL.
 
 ```bash
-.venv/bin/pip install "testcontainers>=4.15" "psycopg[binary]"
+make examples-docker
+```
+
+or, doing it by hand:
+
+```bash
+uv pip install --python .venv/bin/python "testcontainers>=4.15" "psycopg[binary]"
 .venv/bin/python examples/postgres_cdc.py
 ```
+
+`make venv` builds the environment with [uv](https://docs.astral.sh/uv/), which
+deliberately does not install `pip` into it — hence `uv pip install --python`
+rather than `.venv/bin/pip`.
 
 ```
 starting postgres (first run pulls the image)
