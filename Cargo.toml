@@ -1,0 +1,55 @@
+[package]
+name = "drasi-python"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.83"
+description = "Python bindings for the embeddable Drasi continuous-query engine"
+license = "Apache-2.0"
+repository = "https://github.com/drasi-project/drasi-python"
+publish = false
+
+[lib]
+name = "_drasi"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.29", features = [
+    "extension-module",
+    "abi3-py310",
+    "generate-import-lib",
+] }
+pyo3-async-runtimes = { version = "0.29", features = ["tokio-runtime"] }
+
+# Drasi engine + plugin host SDK.
+#
+# These versions are NOT free to choose. Published plugins in
+# ghcr.io/drasi-project are annotated with the drasi-core / drasi-lib /
+# drasi-plugin-sdk versions they were built against, and the host rejects any
+# plugin whose versions do not match ours on major.minor. See docs/plugins.md.
+drasi-lib = "=0.8.9"
+drasi-core = "=0.5.7"
+drasi-host-sdk = { version = "=0.10.0", features = ["watcher", "registry"] }
+drasi-plugin-sdk = "=0.10.0"
+drasi-state-store-redb = "=0.2.4"
+drasi-index-rocksdb = { version = "=0.5.8", optional = true }
+
+anyhow = "1"
+async-trait = "0.1"
+chrono = "0.4"
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["sync", "rt", "rt-multi-thread", "macros", "time"] }
+tokio-stream = "0.1"
+
+[features]
+default = []
+# RocksDB index backend. Requires libclang and a C++ toolchain (bindgen +
+# bundled librocksdb-sys). Enabled for release wheels, off by default so a
+# plain `cargo check` stays fast.
+rocksdb = ["dep:drasi-index-rocksdb"]
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = true

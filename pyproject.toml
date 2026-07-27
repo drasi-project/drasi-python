@@ -1,0 +1,75 @@
+[build-system]
+requires = ["maturin>=1.14,<2"]
+build-backend = "maturin"
+
+[project]
+name = "drasi-lib"
+description = "Embed the Drasi continuous-query engine directly in your Python application"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+authors = [{ name = "The Drasi Authors" }]
+keywords = ["drasi", "continuous-query", "cypher", "gql", "graph", "streaming"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: Database",
+    "Topic :: Software Development :: Libraries",
+    "Typing :: Typed",
+]
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://drasi.io"
+Repository = "https://github.com/drasi-project/drasi-python"
+
+[dependency-groups]
+dev = [
+    "maturin>=1.14,<2",
+    "pytest>=8",
+    "pytest-asyncio>=1.0",
+    "pytest-timeout>=2.3",
+    "ruff>=0.6",
+    "pyright>=1.1.390",
+]
+docker = ["testcontainers>=4.9"]
+
+[tool.maturin]
+module-name = "drasi._drasi"
+bindings = "pyo3"
+python-source = "python"
+features = ["pyo3/extension-module"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+timeout = 120
+markers = [
+    "plugins: requires locally built cdylib plugins (scripts/build_plugins.py)",
+    "oci: requires network access to ghcr.io",
+    "docker: requires a running Docker daemon",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "W"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["drasi"]
+
+[tool.pyright]
+include = ["python", "tests", "examples"]
+pythonVersion = "3.10"
+typeCheckingMode = "strict"
+reportMissingModuleSource = false

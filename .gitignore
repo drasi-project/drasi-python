@@ -1,0 +1,31 @@
+# Rust
+/target/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Native extension built in-place by `maturin develop`
+python/drasi/*.so
+python/drasi/*.pyd
+python/drasi/*.dylib
+
+# Test plugin artifacts
+/plugins/
+/.plugin-cache/
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Local bootstrap venv used to obtain uv
+.bootstrap/
