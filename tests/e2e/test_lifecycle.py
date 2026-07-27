@@ -79,3 +79,16 @@ async def test_engine_work_does_not_starve_the_event_loop() -> None:
 def test_create_outside_a_running_loop_is_a_clear_error() -> None:
     with pytest.raises(RuntimeError, match="no running event loop"):
         Drasi.create("t-no-loop")
+
+
+async def test_module_and_engine_host_info_agree() -> None:
+    """One documented shape, so callers can check compatibility before creating an engine."""
+    from drasi import host_info
+
+    async with await Drasi.create("t-host-info") as drasi:
+        assert drasi.host_info() == host_info()
+
+    info = host_info()
+    assert info["target_triple"]
+    assert info["arch_suffix"]
+    assert info["ffi_sdk_version"]

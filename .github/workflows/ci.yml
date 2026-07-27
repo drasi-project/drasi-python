@@ -172,7 +172,7 @@ jobs:
           VIRTUAL_ENV: ${{ github.workspace }}/.venv
         run: .venv/bin/maturin develop
 
-      - name: Tier 3 — testcontainers
+      - name: Tier 3 — testcontainers, including the Postgres example
         env:
           DRASI_OCI_TESTS: "1"
         run: .venv/bin/pytest -m docker -v

@@ -18,8 +18,12 @@ around Drasi's embeddable engine (`drasi-lib`) and its plugin host SDK
 
 ## Install
 
+> Not published to PyPI yet. Build it from source — see
+> [Development](#development), or [`examples/README.md`](./examples/README.md)
+> for a step-by-step walkthrough.
+
 ```bash
-pip install drasi-lib
+pip install drasi-lib   # once released
 ```
 
 ## Quickstart
@@ -118,6 +122,22 @@ handles this for you — it reads the registry index, picks the newest build who
 optionally verifies its cosign signature, and loads it.
 
 See [`docs/plugins.md`](./docs/plugins.md).
+
+## Examples
+
+Runnable programs are in [`examples/`](./examples), with a guide covering how to
+build the package locally and run them:
+
+| Example | What it shows | Needs |
+| --- | --- | --- |
+| `python_source.py` | Push changes from your own code; react to results | nothing |
+| `install_plugin.py` | Browse the registry, install a plugin, use it | network |
+| `postgres_cdc.py` | React to a real Postgres database | Docker, network |
+
+```bash
+make venv && make develop
+.venv/bin/python examples/python_source.py
+```
 
 ## Development
 

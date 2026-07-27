@@ -48,11 +48,12 @@ Inspect what this host offers:
 ```python
 >>> import drasi
 >>> drasi.host_info()
-{'target_triple': 'aarch64-apple-darwin',
- 'ffi_sdk_version': '0.11.0',
- 'sdk_version': '0.10.0',
+{'arch_suffix': 'darwin-arm64',
  'core_version': '0.5.7',
- 'lib_version': '0.8.9'}
+ 'ffi_sdk_version': '0.11.0',
+ 'lib_version': '0.8.9',
+ 'sdk_version': '0.10.0',
+ 'target_triple': 'aarch64-apple-darwin'}
 ```
 
 ### Architecture suffixes

@@ -19,9 +19,8 @@
 //! Python makes "why was my plugin rejected?" answerable without guesswork.
 
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyDictMethods};
 
-use crate::{DRASI_CORE_VERSION, DRASI_LIB_VERSION, DRASI_SDK_VERSION};
+use crate::conversions::json_to_py;
 
 /// The FFI ABI version this host implements.
 ///
@@ -40,13 +39,10 @@ pub fn target_triple() -> &'static str {
 }
 
 /// Returns the version and platform information used to decide plugin compatibility.
+///
+/// `Drasi.host_info()` returns exactly the same mapping, so callers can inspect
+/// compatibility before building an engine.
 #[pyfunction]
-pub fn host_info(py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
-    let info = PyDict::new(py);
-    info.set_item("target_triple", target_triple())?;
-    info.set_item("ffi_sdk_version", ffi_sdk_version())?;
-    info.set_item("sdk_version", DRASI_SDK_VERSION)?;
-    info.set_item("core_version", DRASI_CORE_VERSION)?;
-    info.set_item("lib_version", DRASI_LIB_VERSION)?;
-    Ok(info)
+pub fn host_info(py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
+    json_to_py(py, &crate::plugins::describe_host())
 }

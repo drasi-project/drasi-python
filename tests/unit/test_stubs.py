@@ -78,6 +78,15 @@ def test_py_typed_marker_is_present() -> None:
     assert (ROOT / "python" / "drasi" / "py.typed").exists()
 
 
+def test_host_info_reports_every_field_the_stub_declares(stub: ast.Module) -> None:
+    declared = {
+        node.target.id
+        for node in _class(stub, "HostInfo").body
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+    }
+    assert set(drasi.host_info()) == declared
+
+
 def test_exception_hierarchy_is_rooted_at_drasi_error() -> None:
     for name in drasi.__all__:
         attribute = getattr(drasi, name)

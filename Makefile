@@ -42,6 +42,11 @@ develop-release: ## Build optimised, with the RocksDB index backend
 plugins: ## Build the cdylib test plugins from crates.io
 	$(PY) scripts/build_plugins.py
 
+.PHONY: examples
+examples: ## Run the examples that need no Docker
+	$(PY) examples/python_source.py
+	$(PY) examples/install_plugin.py
+
 .PHONY: test
 test: ## Run unit tests and tier 1 (hermetic) end-to-end tests
 	$(PYTEST) -m "not plugins and not oci and not docker"

@@ -19,6 +19,12 @@ Needs no plugins, no network and no database.
     python examples/python_source.py
 """
 
+import os
+
+# The engine logs at INFO by default, which drowns out an example's own output.
+# Set RUST_LOG=info (or debug) to see what the engine is doing.
+os.environ.setdefault("RUST_LOG", "warn")
+
 import asyncio
 
 from drasi import Drasi
