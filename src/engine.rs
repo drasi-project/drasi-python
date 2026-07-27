@@ -17,6 +17,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use drasi_lib::api::Query;
 use drasi_lib::config::{QueryJoinConfig, QueryJoinKeyConfig};
@@ -252,6 +253,53 @@ impl Drasi {
                     .collect();
                 converted
             })
+        })
+    }
+
+    /// The current status of a query, such as `"Running"`.
+    fn get_query_status<'py>(&self, py: Python<'py>, id: String) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            inner
+                .core
+                .get_query_status(&id)
+                .await
+                .map(|status| format!("{status:?}"))
+                .map_err(engine_error)
+        })
+    }
+
+    /// Waits until a query is running.
+    ///
+    /// `add_query` returns once the query is provisioned; it finishes starting
+    /// in the background, so reading results immediately can fail with "is not
+    /// running". Await this first when you need to read straight away.
+    #[pyo3(signature = (id, *, timeout = 30.0))]
+    fn wait_for_query<'py>(
+        &self,
+        py: Python<'py>,
+        id: String,
+        timeout: f64,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let deadline = tokio::time::Instant::now() + Duration::from_secs_f64(timeout.max(0.0));
+            let mut last = String::from("unknown");
+            while tokio::time::Instant::now() < deadline {
+                match inner.core.get_query_status(&id).await {
+                    Ok(ComponentStatus::Running) => return Ok(()),
+                    Ok(ComponentStatus::Error) => {
+                        return Err(engine_error(format!("query '{id}' failed to start")))
+                    }
+                    Ok(status) => last = format!("{status:?}"),
+                    // The query may not be registered in the graph yet.
+                    Err(err) => last = err.to_string(),
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            Err(engine_error(format!(
+                "query '{id}' was still {last} after {timeout}s"
+            )))
         })
     }
 

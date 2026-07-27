@@ -39,7 +39,7 @@ dev = [
     "ruff>=0.6",
     "pyright>=1.1.390",
 ]
-docker = ["testcontainers>=4.9"]
+docker = ["testcontainers>=4.15", "psycopg[binary]>=3.2"]
 
 [tool.maturin]
 module-name = "drasi._drasi"

@@ -114,11 +114,13 @@ jobs:
         shell: bash
         env:
           VIRTUAL_ENV: ${{ github.workspace }}/.venv
-        run: "$VENV_BIN/maturin" develop
+        run: |
+          "$VENV_BIN/maturin" develop
 
       - name: Tier 0 and 1 — unit and hermetic end-to-end tests
         shell: bash
-        run: "$VENV_BIN/pytest" -m "not plugins and not oci and not docker" -v
+        run: |
+          "$VENV_BIN/pytest" -m "not plugins and not oci and not docker" -v
 
       # Cache the built cdylib plugins: building them from crates.io is by far
       # the slowest step, and they only change when their pinned versions do.
@@ -132,17 +134,20 @@ jobs:
       - name: Build the test plugins
         if: steps.plugin-cache.outputs.cache-hit != 'true'
         shell: bash
-        run: "$PY" scripts/build_plugins.py
+        run: |
+          "$PY" scripts/build_plugins.py
 
       - name: Tier 2a — locally built cdylib plugins
         shell: bash
-        run: "$VENV_BIN/pytest" -m plugins -v
+        run: |
+          "$VENV_BIN/pytest" -m plugins -v
 
       - name: Tier 2b and 2c — download and install plugins from ghcr.io
         shell: bash
         env:
           DRASI_OCI_TESTS: "1"
-        run: "$VENV_BIN/pytest" -m oci -v
+        run: |
+          "$VENV_BIN/pytest" -m oci -v
 
   docker:
     name: Tier 3 — real backing services
@@ -159,7 +164,8 @@ jobs:
         run: |
           uv venv --python 3.12 .venv
           uv pip install --python .venv/bin/python \
-            maturin pytest pytest-asyncio pytest-timeout testcontainers
+            maturin pytest pytest-asyncio pytest-timeout \
+            testcontainers 'psycopg[binary]'
 
       - name: Build the extension
         env:

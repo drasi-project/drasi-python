@@ -94,3 +94,39 @@ performed in-process — no `cosign` binary is required — and reports one of:
 | `tampered` | A signature exists but does not match the artifact |
 
 Pass `require_signed=True` to reject anything that is not `verified`.
+
+## Plugin configuration
+
+The keys in a plugin's configuration are defined by the plugin, not by Drasi, so
+they are passed through untouched. Drasi's own API is snake_case, but a plugin
+that declares `intervalMs` wants exactly that.
+
+Ask a loaded plugin what it accepts:
+
+```python
+schema = await drasi.source_config_schema("postgres")
+print(schema["name"])  # source.postgres.PostgresSourceConfig
+print(schema["schema"])  # OpenAPI definitions, including required fields
+```
+
+### A trap worth knowing about
+
+Configuration mistakes are validated by the plugin, and a plugin that does not
+recognise a key generally ignores it rather than failing. The Postgres source
+has a particularly sharp example:
+
+```python
+{
+    "tables": ["public.orders"],  # schema-qualified
+    "tableKeys": [{"table": "orders", "keyColumns": ["id"]}],  # bare name
+}
+```
+
+`tables` is schema-qualified but `tableKeys.table` is not. Qualify the latter and
+the key is silently not applied: every update arrives as a second `ADD` rather
+than an `UPDATE`, so rows accumulate, and deletes do nothing at all. Nothing
+errors.
+
+The same source also requires a Postgres publication to exist
+(`CREATE PUBLICATION drasi_publication FOR TABLE ...`). Without it the source
+connects, reports `Running`, and delivers nothing.

@@ -74,8 +74,8 @@ Three things that are easy to get wrong:
   reads a property of that name, so emit it explicitly.
 
 `add_query` returns once the query is provisioned; it finishes starting in the
-background, so reading results immediately can raise "is not running". Poll
-`list_queries()` for `Running` if you need to read straight away.
+background, so reading results immediately can raise "is not running". Await
+`wait_for_query(id)` if you need to read straight away.
 
 ## Using a plugin
 
