@@ -11,10 +11,13 @@ around Drasi's embeddable engine (`drasi-lib`) and its plugin host SDK
   `ghcr.io/drasi-project`, picking the build that is compatible with your host.
 - **Python-defined components** — define a reaction as a Python callback, or a
   source you push changes into from your own code. No Rust required.
+- **Streaming** — `async for event in drasi.query_results(id)`, plus lifecycle
+  events and component logs.
+- **A blocking API** — `drasi.sync.Drasi` for scripts and notebooks.
 
-> Status: early development. The engine, continuous queries,
-> Python-defined sources and reactions, and the full plugin
-> install path are implemented and tested.
+> Status: pre-1.0, not yet on PyPI. The API is complete — full parity with
+> `@drasi/lib` plus streaming as async iterators, a blocking facade, and
+> plugin lockfiles. See [`docs/api-audit.md`](./docs/api-audit.md).
 
 ## Install
 
@@ -123,11 +126,54 @@ optionally verifies its cosign signature, and loads it.
 
 See [`docs/plugins.md`](./docs/plugins.md).
 
+## Watching a query
+
+Polling is rarely what you want:
+
+```python
+async for event in await drasi.query_results("open"):
+    for diff in event["results"]:
+        print(diff["type"], diff.get("data"))
+```
+
+Lifecycle events (`query_events`, `source_events`, `reaction_events`,
+`all_events`) and logs (`query_logs`, `source_logs`, `reaction_logs`) stream the
+same way, and replay their history first. Callback forms (`on_query_results`,
+`on_*_events`, `on_*_logs`) exist for parity with the Node.js binding.
+
+## Without async
+
+```python
+from drasi.sync import Drasi
+
+with Drasi.create("my-app") as drasi:
+    drasi.start()
+    drasi.add_python_source("orders")
+    print(drasi.get_query_results("open"))
+```
+
+Streams become ordinary iterators. Don't use this inside an existing event loop
+— it will tell you so rather than deadlocking.
+
+## Durability
+
+A durable reaction only advances its checkpoint once your callback succeeds, so
+an unhandled event is replayed after a restart:
+
+```python
+drasi = await Drasi.create("app", state_store={"kind": "redb", "path": "state.redb"})
+
+async def handle(event):
+    await write_somewhere(event)     # if this raises, the event is retried
+
+await drasi.add_durable_python_reaction("sink", ["open"], handle)
+```
+
 ## Status
 
-[`docs/api-audit.md`](./docs/api-audit.md) inventories the public API, compares
-it against the Node.js bindings and the Rust engine, and lists the remaining
-gaps in priority order.
+[`docs/api-audit.md`](./docs/api-audit.md) inventories the public API and
+compares it against the Node.js bindings and the Rust engine. It is at full
+parity — 48/48 methods — plus 21 methods Node does not have.
 
 ## Examples
 

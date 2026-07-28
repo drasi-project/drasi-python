@@ -113,6 +113,18 @@ def test_the_guide_only_references_make_targets_that_exist() -> None:
     assert not missing, f"examples/README.md references missing make targets: {sorted(missing)}"
 
 
+def test_streaming_example_runs() -> None:
+    output = run_example("streaming.py")
+    assert "+ {'id': 'o1', 'total': 42}" in output
+    assert "(no longer open)" in output
+    assert "Running:" in output
+
+
+def test_sync_example_runs() -> None:
+    output = run_example("sync_quickstart.py")
+    assert "ADD {'id': 'o1', 'total': 42}" in output
+
+
 def test_python_source_example_runs() -> None:
     output = run_example("python_source.py")
     assert "+ {'customer': 'Ada', 'id': 'o1', 'total': 42}" in output

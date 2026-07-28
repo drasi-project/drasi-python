@@ -1,14 +1,21 @@
 # Python bindings: API surface and gap audit
 
-> Audit for [`drasi-project/team#109`](https://github.com/drasi-project/team/issues/109).
-> Feeds the "close API gaps" subtask (#110).
+> Audit for [`drasi-project/team#109`](https://github.com/drasi-project/team/issues/109),
+> and the record of closing it in
+> [#110](https://github.com/drasi-project/team/issues/110).
 >
-> Measured against `drasi-python` at commit `a73842a`, `drasi-core-python` at
-> `HEAD` (last pushed 2026-02-14), and `@drasi/lib` 0.2.0.
+> **Status: every gap identified below is closed.** `drasi-python` is at
+> **48/48 `@drasi/lib` methods (100%)** plus 21 methods Node does not have.
+> The sections below are kept as the record of what was found and what was
+> done; the original findings are marked ✅ where they have been addressed.
+>
+> `drasi-core-python` is deprecated. `drasi-python` is the binding.
 
 ## Summary
 
-There are **two** Python binding prototypes, with different architectures:
+At the time of the audit there were **two** Python binding prototypes with
+different architectures. `drasi-core-python` has since been deprecated, and its
+one genuine advantage — streaming as async iterators — has been carried over.
 
 | | `drasi-python` | `drasi-core-python` |
 | --- | --- | --- |
@@ -23,16 +30,14 @@ There are **two** Python binding prototypes, with different architectures:
 | Python | ≥3.10 (abi3) | ≥3.11 |
 
 Note also that `drasi-core-python`'s workspace root is itself named
-`drasi-python` in its `pyproject.toml`, so the two efforts already collide on
-name. Whichever is carried forward, the other should be renamed or archived.
+`drasi-python` in its `pyproject.toml`, so the two efforts collided on name.
 
-They are **complementary, not redundant**: each implements most of what the
-other lacks. Deciding which to carry forward is the blocking decision for #110,
-because the answer changes what "closing the gaps" means. See
-[Recommendation](#recommendation).
+They were **complementary, not redundant**: each implemented most of what the
+other lacked. That made choosing between them the blocking decision for #110.
+The decision was to keep `drasi-python`.
 
-Against `@drasi/lib`, `drasi-python` is at **30/48 methods (62%)**, with 7
-methods Node does not have.
+Against `@drasi/lib`, `drasi-python` was at 30/48 methods (62%) when audited,
+and is now at **48/48 (100%)**.
 
 ## Method
 
@@ -166,29 +171,30 @@ components are concrete Python classes from separate packages
 
 ## 3. Gap analysis vs `@drasi/lib`
 
-**30 of 48 methods present (62%).** 18 missing:
+At audit: 30 of 48 methods (62%). **Now 48 of 48 (100%).**
 
-| Area | Missing | Priority |
+| Area | Was missing | Status |
 | --- | --- | --- |
-| Streaming | `on_all_events`, `on_{query,source,reaction}_events`, `on_{query,source,reaction}_logs` | **P0** |
-| Metrics | `get_query_metrics`, `get_reaction_metrics`, `get_lifecycle_metrics` | P1 |
-| Schema | `get_source_schema`, `get_graph_schema` | P1 |
-| Config | `from_config` | P1 |
-| Components | `update_source`, `update_reaction` | P1 |
-| Reactions | `add_durable_python_reaction` | P2 |
-| Plugins | `watch_plugins`, `pull_plugin` | P2 |
+| Streaming | `on_all_events`, `on_{query,source,reaction}_events`, `on_{query,source,reaction}_logs` | ✅ plus async iterators |
+| Metrics | `get_query_metrics`, `get_reaction_metrics`, `get_lifecycle_metrics` | ✅ |
+| Schema | `get_source_schema`, `get_graph_schema` | ✅ |
+| Config | `from_config` | ✅ |
+| Components | `update_source`, `update_reaction` | ✅ |
+| Reactions | `add_durable_python_reaction` | ✅ |
+| Plugins | `watch_plugins`, `pull_plugin` | ✅ |
+| Secret store | `secrets`, and the resolver plugins call back through | ✅ |
+| State store | redb | ✅ |
+| Index store | RocksDB, behind a Cargo feature | ✅ |
+| Identity | password and token | ✅ |
 
-7 methods exist here that Node does not have: `install_plugin`,
-`resolve_plugin`, `search_plugins`, `host_info`, `get_query_status`,
-`wait_for_query`, `is_running`.
-
-Also missing, and not method-shaped:
-
-- **Secret store** — `CreateOptions.secrets`. Plugins resolving
-  `ConfigValue::Secret` cannot be configured. **P0** for any real source.
-- **State store** (redb) — required before durable reactions are possible.
-- **Index store** (RocksDB) — feature-gated in `Cargo.toml` but not exposed.
-- **Identity providers** — `IdentityOptions`.
+**21 methods exist here that Node does not have**: the eight streaming
+iterators (`query_results`, `query_events`, `source_events`,
+`reaction_events`, `all_events`, `query_logs`, `source_logs`,
+`reaction_logs`) and `on_query_results`; the plugin ergonomics
+(`install_plugin`, `resolve_plugin`, `search_plugins`, `write_lockfile`,
+`read_lockfile`, `install_from_lockfile`); and introspection (`host_info`,
+`get_query_status`, `get_source_status`, `get_reaction_status`,
+`wait_for_query`, `is_running`).
 
 ## 4. Gap analysis vs the `drasi-lib` engine
 
@@ -208,9 +214,9 @@ These are lower priority than the Node parity gaps — they are engine surface
 neither binding has needed yet — but `snapshot_configuration` pairs naturally
 with `from_config`.
 
-## 5. Prioritized gap list
+## 5. Prioritized gap list — all closed
 
-Each item is intended to become a work item under #110.
+Each item became a work item under #110. All are done.
 
 ### P0 — blocks realistic use
 
@@ -269,10 +275,10 @@ are well modelled, but engine-side failures still collapse into
 `async with`, and `wait_for_query` for the auto-start race. Two gaps: no async
 iterators until streaming lands (item 1), and no sync facade (item 15).
 
-## Recommendation
+## Recommendation — accepted
 
-Carry `drasi-python` forward as the released binding, and port the streaming
-design from `drasi-core-python` rather than maintaining both.
+`drasi-python` is the released binding. The streaming design from
+`drasi-core-python` was ported rather than maintaining both.
 
 The reasoning is distribution, not code quality. `drasi-core-python`'s
 compile-time model needs 23 PyPI packages released in lockstep, and adding a
@@ -289,5 +295,21 @@ failure the compile-time model does not have. That risk is already mitigated —
 `PluginCompatibilityError` naming the host's versions, and CI fails if our crate
 pins drift from what the registry publishes.
 
-If that recommendation is accepted, `drasi-core-python` should be archived with
-a pointer, so the next person does not have to make this comparison again.
+`drasi-core-python` is deprecated and should be archived with a pointer here, so
+nobody has to make this comparison again.
+
+## What is left
+
+Not API gaps, and tracked separately in the epic:
+
+- Wheel matrix and PyPI release — team#112
+- First stable release — team#113
+- Introduction article and tutorial — team#115, #116
+
+Two engine-level behaviours are worth knowing, both pinned by tests:
+
+- `get_reaction_metrics()["checkpoint_sequence"]` is the forwarder's *delivery*
+  position, not the durable checkpoint. It advances even when a durable handler
+  fails, so it cannot be used to assert durability.
+- redb holds an exclusive lock for the life of the process. Closing an engine
+  does not release it, so a state store cannot be reopened in the same process.

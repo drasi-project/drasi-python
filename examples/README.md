@@ -70,6 +70,8 @@ source .venv/bin/activate   # then plain `python examples/...` works
 | --- | --- | --- |
 | [`python_source.py`](./python_source.py) | Push changes from your own code; react to results | nothing |
 | [`install_plugin.py`](./install_plugin.py) | Browse the registry, install a plugin, use it | network |
+| [`streaming.py`](./streaming.py) | Watch a query change, without polling | nothing |
+| [`sync_quickstart.py`](./sync_quickstart.py) | The blocking API, for scripts | nothing |
 | [`postgres_cdc.py`](./postgres_cdc.py) | React to a real Postgres database | Docker, network |
 
 `_throwaway_postgres.py` is support code for the last one, not an example.
@@ -96,6 +98,40 @@ still open: [{'customer': 'Grace', 'id': 'o2', 'total': 17}]
 Note the third line: shipping an order does not delete it, but it no longer
 matches `WHERE o.status = 'open'`, so the query reports it as removed from the
 result set.
+
+### `streaming.py`
+
+Three different things can be streamed, and they are easy to confuse: the diffs
+a query produces, the lifecycle events of a component, and its log lines. This
+shows the first two.
+
+```bash
+.venv/bin/python examples/streaming.py
+```
+
+```
+watching for changes to the open orders...
+
+  + {'id': 'o1', 'total': 42}
+  + {'id': 'o2', 'total': 17}
+  - {'id': 'o1', 'total': 42}  (no longer open)
+
+how the query got here:
+  Added: query added
+  Starting: Starting query
+  Running: Query started successfully
+
+still open: [{'id': 'o2', 'total': 17}]
+```
+
+### `sync_quickstart.py`
+
+The same engine without `await`, for scripts and notebooks. Streams become
+ordinary iterators.
+
+```bash
+.venv/bin/python examples/sync_quickstart.py
+```
 
 ### `install_plugin.py`
 
