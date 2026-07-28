@@ -1,0 +1,219 @@
+# Copyright 2026 The Drasi Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  wheels:
+    name: Wheel (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Ubuntu 22.04 deliberately keeps the glibc floor lower for consumers.
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-13
+            target: x86_64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: astral-sh/setup-uv@v6
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install libclang (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
+
+      - name: Point bindgen at LLVM (Windows)
+        if: runner.os == 'Windows'
+        run: echo "LIBCLANG_PATH=$((gcm clang).source -replace 'clang.exe')" >> $env:GITHUB_ENV
+
+      - name: Set up build tooling
+        shell: bash
+        run: |
+          uv venv --python 3.12 .build-venv
+          uv pip install --python "$(ls .build-venv/bin/python .build-venv/Scripts/python.exe 2>/dev/null | head -1)" \
+            'maturin>=1.14,<2'
+
+      - name: Resolve build interpreter paths
+        shell: bash
+        run: |
+          if [ -d .build-venv/Scripts ]; then
+            echo "BUILD_VENV_BIN=$PWD/.build-venv/Scripts" >> "$GITHUB_ENV"
+          else
+            echo "BUILD_VENV_BIN=$PWD/.build-venv/bin" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build abi3 release wheel
+        shell: bash
+        run: |
+          # abi3-py310 produces one wheel per platform for every supported Python.
+          "$BUILD_VENV_BIN/maturin" build \
+            --release \
+            --target "${{ matrix.target }}" \
+            --features pyo3/extension-module,rocksdb \
+            --out dist
+
+      - name: Set up smoke-test virtualenv
+        shell: bash
+        run: |
+          uv venv --python 3.12 .smoke-venv
+          if [ -d .smoke-venv/Scripts ]; then
+            echo "SMOKE_VENV_BIN=$PWD/.smoke-venv/Scripts" >> "$GITHUB_ENV"
+            echo "SMOKE_PY=$PWD/.smoke-venv/Scripts/python.exe" >> "$GITHUB_ENV"
+          else
+            echo "SMOKE_VENV_BIN=$PWD/.smoke-venv/bin" >> "$GITHUB_ENV"
+            echo "SMOKE_PY=$PWD/.smoke-venv/bin/python" >> "$GITHUB_ENV"
+          fi
+
+      - name: Install built wheel
+        shell: bash
+        run: |
+          uv pip install --python "$SMOKE_PY" dist/*.whl \
+            pytest pytest-asyncio pytest-timeout
+
+      - name: Prepare smoke-test tree
+        shell: bash
+        run: |
+          "$SMOKE_PY" - <<'PY'
+          from pathlib import Path
+          import shutil
+
+          root = Path.cwd()
+          smoke = root / "wheel-smoke"
+          if smoke.exists():
+              shutil.rmtree(smoke)
+          smoke.mkdir()
+
+          for name in [
+              "tests",
+              "docs",
+              "examples",
+              "scripts",
+              "python",
+              "Cargo.toml",
+              "Makefile",
+              "README.md",
+              "pyproject.toml",
+          ]:
+              source = root / name
+              destination = smoke / name
+              if source.is_dir():
+                  shutil.copytree(
+                      source,
+                      destination,
+                      ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache"),
+                  )
+              elif source.exists():
+                  shutil.copy2(source, destination)
+          PY
+
+      - name: Smoke-test installed wheel
+        shell: bash
+        env:
+          REPO_ROOT: ${{ github.workspace }}
+        run: |
+          cd wheel-smoke
+          "$SMOKE_PY" - <<'PY'
+          from pathlib import Path
+          import os
+          import drasi
+
+          module = Path(drasi.__file__).resolve()
+          source_trees = [
+              (Path(os.environ["REPO_ROOT"]) / "python").resolve(),
+              (Path.cwd() / "python").resolve(),
+          ]
+          if any(module.is_relative_to(source_tree) for source_tree in source_trees):
+              raise SystemExit(f"smoke test imported the source tree: {module}")
+          print(f"smoke test imported installed wheel: {module}")
+          PY
+          "$SMOKE_VENV_BIN/pytest" -m "not plugins and not oci and not docker" -v
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.target }}
+          path: dist/*.whl
+          if-no-files-found: error
+
+  sdist:
+    name: Source distribution
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Set up build tooling
+        run: |
+          uv venv --python 3.12 .build-venv
+          uv pip install --python .build-venv/bin/python 'maturin>=1.14,<2'
+
+      - name: Build sdist
+        run: .build-venv/bin/maturin sdist --out dist
+
+      - name: Upload sdist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    needs: [wheels, sdist]
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v5
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish distributions
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+          attestations: true

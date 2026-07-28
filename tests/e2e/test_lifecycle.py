@@ -20,7 +20,9 @@ import asyncio
 
 import pytest
 
-from drasi import Drasi
+from drasi import Drasi, DrasiError
+
+from .helpers import wait_for_query_running, wait_for_rows
 
 
 async def test_create_returns_an_awaitable_engine() -> None:
@@ -42,6 +44,55 @@ async def test_start_stop_toggles_is_running() -> None:
         assert await drasi.is_running() is False
     finally:
         await drasi.close()
+
+
+async def test_starting_an_already_running_engine_is_rejected() -> None:
+    drasi = await Drasi.create("t-start-twice")
+    try:
+        await drasi.start()
+        with pytest.raises(DrasiError) as caught:
+            await drasi.start()
+        assert caught.value.code == "ENGINE_FAILURE"
+        assert "already running" in str(caught.value)
+        assert await drasi.is_running() is True
+    finally:
+        await drasi.close()
+
+
+async def test_an_engine_can_process_changes_after_stop_then_start() -> None:
+    drasi = await Drasi.create("t-restart")
+    try:
+        await drasi.add_python_source("orders")
+        await drasi.add_query("q", "MATCH (o:Order) RETURN o.id AS id", ["orders"])
+        await drasi.start()
+        await wait_for_query_running(drasi, "q")
+        await drasi.stop()
+        assert await drasi.is_running() is False
+
+        await drasi.start()
+        await wait_for_query_running(drasi, "q")
+        await drasi.push_change(
+            "orders",
+            {"op": "insert", "id": "o1", "labels": ["Order"], "properties": {"id": "o1"}},
+        )
+
+        assert await wait_for_rows(drasi, "q") == [{"id": "o1"}]
+    finally:
+        await drasi.close()
+
+
+async def test_close_is_idempotent_but_start_after_close_is_rejected() -> None:
+    drasi = await Drasi.create("t-close-twice")
+    await drasi.start()
+
+    await drasi.close()
+    await drasi.close()
+
+    assert await drasi.is_running() is False
+    with pytest.raises(DrasiError) as caught:
+        await drasi.start()
+    assert caught.value.code == "ENGINE_FAILURE"
+    assert "shut down" in str(caught.value)
 
 
 async def test_async_context_manager_closes_the_engine() -> None:
@@ -92,3 +143,45 @@ async def test_module_and_engine_host_info_agree() -> None:
     assert info["target_triple"]
     assert info["arch_suffix"]
     assert info["ffi_sdk_version"]
+
+
+async def test_a_closed_engine_refuses_further_changes() -> None:
+    """Adding to a closed engine used to succeed, and then never run.
+
+    The component was accepted, no error was raised, and the only symptom was
+    that nothing happened — discovered much later, if at all.
+    """
+    drasi = await Drasi.create("t-closed")
+    await drasi.start()
+    await drasi.close()
+
+    for attempt in (
+        lambda: drasi.add_python_source("s"),
+        lambda: drasi.add_query("q", "MATCH (o:Order) RETURN o.id AS id", ["s"]),
+        lambda: drasi.push_change("s", {"op": "insert", "id": "o1"}),
+        lambda: drasi.load_plugins("./plugins"),
+    ):
+        with pytest.raises(DrasiError) as caught:
+            await attempt()
+        assert caught.value.code == "ENGINE_CLOSED"
+
+
+async def test_a_closed_engine_can_still_be_inspected() -> None:
+    """Reading is harmless, and useful when working out what happened."""
+    drasi = await Drasi.create("t-closed-reads")
+    await drasi.start()
+    await drasi.add_python_source("s")
+    await drasi.close()
+
+    assert await drasi.is_running() is False
+    assert any(source_id == "s" for source_id, _ in await drasi.list_sources())
+    assert drasi.host_info()["target_triple"]
+
+
+async def test_leaving_the_context_manager_closes_for_good() -> None:
+    async with await Drasi.create("t-ctx-closed") as drasi:
+        await drasi.start()
+
+    with pytest.raises(DrasiError) as caught:
+        await drasi.add_python_source("s")
+    assert caught.value.code == "ENGINE_CLOSED"

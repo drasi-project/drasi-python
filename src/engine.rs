@@ -16,7 +16,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -54,9 +54,26 @@ pub struct Inner {
     /// Whether a durable state store was configured. Durable reactions need
     /// one to persist their checkpoints across restarts.
     durable_capable: bool,
+    /// Set by `close`. The engine refuses `start` once shut down, but would
+    /// otherwise still accept components that could never run.
+    closed: AtomicBool,
 }
 
 impl Inner {
+    /// Rejects work on an engine that has been closed.
+    ///
+    /// Without this, adding a component to a closed engine succeeds and then
+    /// silently never runs, which is only discovered much later.
+    fn ensure_open(&self) -> PyResult<()> {
+        if self.closed.load(Ordering::Relaxed) {
+            return Err(error(
+                DrasiErrorCode::EngineClosed,
+                format!("engine '{}' has been closed", self.id),
+            ));
+        }
+        Ok(())
+    }
+
     fn next_stream_id(&self) -> u64 {
         self.stream_counter.fetch_add(1, Ordering::Relaxed)
     }
@@ -140,6 +157,7 @@ impl Drasi {
                     default_plugin_dir: Mutex::new(None),
                     stream_counter: AtomicU64::new(0),
                     durable_capable,
+                    closed: AtomicBool::new(false),
                 }),
             })
         })
@@ -215,6 +233,7 @@ impl Drasi {
                     default_plugin_dir: Mutex::new(None),
                     stream_counter: AtomicU64::new(0),
                     durable_capable,
+                    closed: AtomicBool::new(false),
                 }),
             };
             let inner = Arc::clone(&drasi.inner);
@@ -311,6 +330,9 @@ impl Drasi {
     /// Stops the engine and releases all of its resources.
     fn close<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner();
+        // Marked before shutting down, so a concurrent caller cannot slip a
+        // component in while the engine is on its way down.
+        inner.closed.store(true, Ordering::Relaxed);
         future_into_py(py, async move {
             inner.core.shutdown().await.map_err(engine_error)
         })
@@ -334,6 +356,7 @@ impl Drasi {
         _args: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner();
+        inner.closed.store(true, Ordering::Relaxed);
         future_into_py(py, async move {
             inner.core.shutdown().await.map_err(engine_error)?;
             Ok(false)
@@ -388,6 +411,7 @@ impl Drasi {
             },
         )?;
         let inner = self.inner();
+        inner.ensure_open()?;
         future_into_py(py, async move {
             inner.core.add_query(config).await.map_err(engine_error)
         })
@@ -434,6 +458,7 @@ impl Drasi {
             },
         )?;
         let inner = self.inner();
+        inner.ensure_open()?;
         future_into_py(py, async move {
             inner
                 .core
@@ -445,6 +470,7 @@ impl Drasi {
 
     fn remove_query<'py>(&self, py: Python<'py>, id: String) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner();
+        inner.ensure_open()?;
         future_into_py(py, async move {
             inner.core.remove_query(&id).await.map_err(engine_error)
         })
@@ -452,6 +478,7 @@ impl Drasi {
 
     fn start_query<'py>(&self, py: Python<'py>, id: String) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner();
+        inner.ensure_open()?;
         future_into_py(py, async move {
             inner.core.start_query(&id).await.map_err(engine_error)
         })
@@ -459,6 +486,7 @@ impl Drasi {
 
     fn stop_query<'py>(&self, py: Python<'py>, id: String) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner();
+        inner.ensure_open()?;
         future_into_py(py, async move {
             inner.core.stop_query(&id).await.map_err(engine_error)
         })
@@ -1007,6 +1035,7 @@ impl Drasi {
         verify: Option<HashMap<String, String>>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner();
+        inner.ensure_open()?;
         future_into_py(py, async move {
             let summary = inner
                 .plugins
@@ -1029,6 +1058,7 @@ impl Drasi {
         debounce_seconds: f64,
     ) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner();
+        inner.ensure_open()?;
         future_into_py(py, async move {
             let plugins = Arc::clone(&inner.plugins);
             plugins
@@ -1157,6 +1187,7 @@ impl Drasi {
         load: bool,
     ) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner();
+        inner.ensure_open()?;
         future_into_py(py, async move {
             let client = plugins::registry_client(
                 trusted_identities.unwrap_or_default(),
@@ -1312,6 +1343,7 @@ impl Drasi {
     ) -> PyResult<Bound<'py, PyAny>> {
         let entries = PluginHost::read_lockfile(&directory).map_err(plugin_error)?;
         let inner = self.inner();
+        inner.ensure_open()?;
         future_into_py(py, async move {
             let client = plugins::registry_client(Vec::new(), false);
             let mut installed = Vec::new();
@@ -1450,6 +1482,7 @@ impl Drasi {
         // Captured here, while we are still on the caller's event loop.
         let locals = pyo3_async_runtimes::TaskLocals::with_running_loop(py)?.copy_context(py)?;
         let inner = self.inner();
+        inner.ensure_open()?;
         future_into_py(py, async move {
             inner
                 .core
@@ -1478,6 +1511,7 @@ impl Drasi {
             None => serde_json::json!({}),
         };
         let inner = self.inner();
+        inner.ensure_open()?;
         future_into_py(py, async move {
             let descriptor = inner
                 .plugins
@@ -1515,6 +1549,7 @@ impl Drasi {
             None => serde_json::json!({}),
         };
         let inner = self.inner();
+        inner.ensure_open()?;
         future_into_py(py, async move {
             let descriptor = inner
                 .plugins
@@ -1556,6 +1591,7 @@ impl Drasi {
             None => serde_json::json!({}),
         };
         let inner = self.inner();
+        inner.ensure_open()?;
         future_into_py(py, async move {
             let descriptor = inner
                 .plugins
@@ -1582,6 +1618,7 @@ impl Drasi {
         cleanup: bool,
     ) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner();
+        inner.ensure_open()?;
         future_into_py(py, async move {
             inner
                 .core
@@ -1595,6 +1632,7 @@ impl Drasi {
 
     fn start_source<'py>(&self, py: Python<'py>, id: String) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner();
+        inner.ensure_open()?;
         future_into_py(py, async move {
             inner.core.start_source(&id).await.map_err(engine_error)
         })
@@ -1602,6 +1640,7 @@ impl Drasi {
 
     fn stop_source<'py>(&self, py: Python<'py>, id: String) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner();
+        inner.ensure_open()?;
         future_into_py(py, async move {
             inner.core.stop_source(&id).await.map_err(engine_error)
         })
@@ -1644,6 +1683,7 @@ impl Drasi {
             None => serde_json::json!({}),
         };
         let inner = self.inner();
+        inner.ensure_open()?;
         future_into_py(py, async move {
             let descriptor = inner
                 .plugins
@@ -1672,6 +1712,7 @@ impl Drasi {
         cleanup: bool,
     ) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner();
+        inner.ensure_open()?;
         future_into_py(py, async move {
             inner
                 .core
@@ -1683,6 +1724,7 @@ impl Drasi {
 
     fn start_reaction<'py>(&self, py: Python<'py>, id: String) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner();
+        inner.ensure_open()?;
         future_into_py(py, async move {
             inner.core.start_reaction(&id).await.map_err(engine_error)
         })
@@ -1690,6 +1732,7 @@ impl Drasi {
 
     fn stop_reaction<'py>(&self, py: Python<'py>, id: String) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner();
+        inner.ensure_open()?;
         future_into_py(py, async move {
             inner.core.stop_reaction(&id).await.map_err(engine_error)
         })
@@ -1727,6 +1770,7 @@ impl Drasi {
         auto_start: bool,
     ) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner();
+        inner.ensure_open()?;
         future_into_py(py, async move {
             let source = Arc::new(PythonSource::new(&id, auto_start).map_err(engine_error)?);
             inner
@@ -1750,6 +1794,7 @@ impl Drasi {
         // the caller ever awaits, and the conversion needs the GIL anyway.
         let change = source_change_from_py(&source_id, change)?;
         let inner = self.inner();
+        inner.ensure_open()?;
         future_into_py(py, async move {
             let source = inner
                 .python_sources
@@ -1782,6 +1827,7 @@ impl Drasi {
             ));
         }
         let inner = self.inner();
+        inner.ensure_open()?;
         future_into_py(py, async move {
             inner
                 .core

@@ -5,8 +5,9 @@ build-backend = "maturin"
 [project]
 name = "drasi-lib"
 description = "Embed the Drasi continuous-query engine directly in your Python application"
-readme = "README.md"
+readme = { file = "README.md", content-type = "text/markdown" }
 license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 authors = [{ name = "The Drasi Authors" }]
 keywords = ["drasi", "continuous-query", "cypher", "gql", "graph", "streaming"]
@@ -21,7 +22,9 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: Implementation :: CPython",
     "Topic :: Database",
+    "Topic :: Database :: Front-Ends",
     "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Python Modules",
     "Typing :: Typed",
 ]
 dynamic = ["version"]
@@ -29,6 +32,9 @@ dynamic = ["version"]
 [project.urls]
 Homepage = "https://drasi.io"
 Repository = "https://github.com/drasi-project/drasi-python"
+Documentation = "https://github.com/drasi-project/drasi-python/tree/main/docs"
+Issues = "https://github.com/drasi-project/drasi-python/issues"
+Changelog = "https://github.com/drasi-project/drasi-python/blob/main/CHANGELOG.md"
 
 [dependency-groups]
 dev = [

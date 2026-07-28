@@ -156,6 +156,22 @@ async def test_event_callbacks_fire(engine: Drasi) -> None:
     assert seen[0]["component_id"] == "open"
 
 
+async def test_all_source_and_reaction_event_callbacks_fire(engine: Drasi) -> None:
+    drasi = await running_engine(engine)
+    all_seen: list[dict[str, Any]] = []
+    source_seen: list[dict[str, Any]] = []
+    reaction_seen: list[dict[str, Any]] = []
+
+    await drasi.on_all_events(all_seen.append)
+    await drasi.on_source_events("orders", source_seen.append)
+    await drasi.add_python_reaction("noop", ["open"], lambda _: None)
+    await drasi.on_reaction_events("noop", reaction_seen.append)
+
+    await wait_for(lambda: any(event["component_id"] == "orders" for event in source_seen))
+    await wait_for(lambda: any(event["component_id"] == "noop" for event in reaction_seen))
+    assert any("component_id" in event for event in all_seen)
+
+
 # ------------------------------------------------------------------------ logs
 
 
@@ -174,8 +190,10 @@ async def test_log_streams_are_available_for_each_component(engine: Drasi) -> No
 
 async def test_log_callbacks_are_accepted(engine: Drasi) -> None:
     drasi = await running_engine(engine)
+    await drasi.add_python_reaction("noop", ["open"], lambda _: None)
     await drasi.on_query_logs("open", lambda _: None)
     await drasi.on_source_logs("orders", lambda _: None)
+    await drasi.on_reaction_logs("noop", lambda _: None)
 
 
 # ---------------------------------------------------------------------- errors

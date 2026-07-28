@@ -163,8 +163,10 @@ an unhandled event is replayed after a restart:
 ```python
 drasi = await Drasi.create("app", state_store={"kind": "redb", "path": "state.redb"})
 
+
 async def handle(event):
-    await write_somewhere(event)     # if this raises, the event is retried
+    await write_somewhere(event)  # if this raises, the event is retried
+
 
 await drasi.add_durable_python_reaction("sink", ["open"], handle)
 ```

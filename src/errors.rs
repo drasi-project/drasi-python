@@ -63,6 +63,7 @@ pub enum DrasiErrorCode {
     PluginIncompatible,
     PluginNotFound,
     StreamLagged,
+    EngineClosed,
     EngineFailure,
 }
 
@@ -95,6 +96,7 @@ impl DrasiErrorCode {
             Self::PluginIncompatible => "PLUGIN_INCOMPATIBLE",
             Self::PluginNotFound => "PLUGIN_NOT_FOUND",
             Self::StreamLagged => "STREAM_LAGGED",
+            Self::EngineClosed => "ENGINE_CLOSED",
             Self::EngineFailure => "ENGINE_FAILURE",
         }
     }
@@ -129,6 +131,7 @@ impl DrasiErrorCode {
             PluginIncompatible,
             PluginNotFound,
             StreamLagged,
+            EngineClosed,
             EngineFailure,
         ]
     }
@@ -166,6 +169,7 @@ impl DrasiErrorCode {
             PluginIncompatible => py.get_type::<PluginCompatibilityError>().into(),
             PluginNotFound => py.get_type::<PluginNotFoundError>().into(),
             StreamLagged => py.get_type::<StreamLaggedError>().into(),
+            EngineClosed => py.get_type::<DrasiError>().into(),
             EngineFailure => py.get_type::<DrasiError>().into(),
         }
     }

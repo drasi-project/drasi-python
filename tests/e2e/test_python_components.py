@@ -25,7 +25,13 @@ import pytest
 
 from drasi import Drasi, DrasiError, SourceError, UnknownKindError
 
-from .helpers import collect_events, wait_for_result, wait_for_rows
+from .helpers import (
+    collect_events,
+    wait_for,
+    wait_for_query_running,
+    wait_for_result,
+    wait_for_rows,
+)
 
 OPEN_ORDERS = "MATCH (o:Order) WHERE o.status = 'open' RETURN o.id AS id, o.total AS total"
 
@@ -306,6 +312,63 @@ async def test_stopped_query_can_be_restarted(engine: Drasi) -> None:
     assert await wait_for_rows(engine, "open") == [{"id": "o1", "total": 3}]
 
 
+async def test_stopped_query_results_are_rejected(engine: Drasi) -> None:
+    await engine.add_python_source("orders")
+    await engine.add_query("open", OPEN_ORDERS, ["orders"])
+    await engine.start()
+    await engine.wait_for_query("open")
+    await engine.push_change(
+        "orders",
+        {
+            "op": "insert",
+            "id": "o1",
+            "labels": ["Order"],
+            "properties": {"id": "o1", "status": "open", "total": 3},
+        },
+    )
+    await wait_for_rows(engine, "open")
+
+    await engine.stop_query("open")
+
+    with pytest.raises(DrasiError) as caught:
+        await engine.get_query_results("open")
+    assert caught.value.code == "ENGINE_FAILURE"
+    assert "not running" in str(caught.value)
+
+
+async def test_running_query_can_be_updated_in_place(engine: Drasi) -> None:
+    await engine.start()
+    await engine.add_python_source("orders")
+    await engine.add_query("open", "MATCH (o:Order) RETURN o.id AS id", ["orders"])
+    await wait_for_query_running(engine, "open")
+    await engine.push_change(
+        "orders",
+        {
+            "op": "insert",
+            "id": "o1",
+            "labels": ["Order"],
+            "properties": {"id": "o1", "status": "open", "total": 3},
+        },
+    )
+    assert await wait_for_rows(engine, "open") == [{"id": "o1"}]
+
+    # Updating a query restarts it, so it is briefly not running and reading
+    # results in that window raises rather than returning an empty list.
+    await engine.update_query("open", OPEN_ORDERS, ["orders"])
+    await wait_for_query_running(engine, "open")
+    await wait_for_rows(engine, "open", count=0)
+    await engine.push_change(
+        "orders",
+        {
+            "op": "update",
+            "id": "o1",
+            "labels": ["Order"],
+            "properties": {"id": "o1", "status": "open", "total": 4},
+        },
+    )
+    await wait_for_result(engine, "open", [{"id": "o1", "total": 4}])
+
+
 async def test_removed_query_is_gone(engine: Drasi) -> None:
     await engine.add_python_source("orders")
     await engine.add_query("open", OPEN_ORDERS, ["orders"])
@@ -313,6 +376,114 @@ async def test_removed_query_is_gone(engine: Drasi) -> None:
     await engine.remove_query("open")
 
     assert [query_id for query_id, _ in await engine.list_queries()] == []
+
+
+async def test_running_source_without_dependents_can_be_removed(engine: Drasi) -> None:
+    await engine.add_python_source("orders")
+    await engine.start()
+
+    await engine.remove_source("orders")
+
+    assert "orders" not in dict(await engine.list_sources())
+    with pytest.raises(SourceError) as caught:
+        await engine.push_change("orders", {"op": "insert", "id": "o1"})
+    assert caught.value.code == "NO_PY_SOURCE"
+
+
+async def test_source_registered_without_auto_start_can_be_started(engine: Drasi) -> None:
+    await engine.add_python_source("orders", auto_start=False)
+    await engine.start()
+
+    assert await engine.get_source_status("orders") == "Added"
+
+    await engine.start_source("orders")
+
+    assert await engine.get_source_status("orders") == "Running"
+
+
+async def test_running_source_with_dependents_is_not_removed(engine: Drasi) -> None:
+    await engine.add_python_source("orders")
+    await engine.add_query("open", OPEN_ORDERS, ["orders"])
+    await engine.start()
+    await wait_for_query_running(engine, "open")
+
+    with pytest.raises(DrasiError) as caught:
+        await engine.remove_source("orders")
+    assert caught.value.code == "ENGINE_FAILURE"
+    assert "Depended on by: open" in str(caught.value)
+    assert "orders" in dict(await engine.list_sources())
+
+
+async def test_running_reaction_can_be_removed(engine: Drasi) -> None:
+    await engine.add_python_source("orders")
+    await engine.add_query("open", OPEN_ORDERS, ["orders"])
+    seen: list[dict[str, Any]] = []
+    await engine.add_python_reaction("watch", ["open"], seen.append)
+    await engine.start()
+    await wait_for_query_running(engine, "open")
+    assert "watch" in dict(await engine.list_reactions())
+
+    await engine.remove_reaction("watch")
+
+    assert "watch" not in dict(await engine.list_reactions())
+    await engine.push_change(
+        "orders",
+        {
+            "op": "insert",
+            "id": "o1",
+            "labels": ["Order"],
+            "properties": {"id": "o1", "status": "open", "total": 1},
+        },
+    )
+    await wait_for_rows(engine, "open")
+    assert seen == []
+
+
+async def test_stopped_reaction_replays_missed_results_when_restarted(engine: Drasi) -> None:
+    await engine.add_python_source("orders")
+    await engine.add_query("open", OPEN_ORDERS, ["orders"])
+    seen: list[dict[str, Any]] = []
+    await engine.add_python_reaction("watch", ["open"], seen.append)
+    await engine.start()
+    await wait_for_query_running(engine, "open")
+
+    await engine.stop_reaction("watch")
+    assert await engine.get_reaction_status("watch") == "Stopped"
+    await engine.push_change(
+        "orders",
+        {
+            "op": "insert",
+            "id": "o1",
+            "labels": ["Order"],
+            "properties": {"id": "o1", "status": "open", "total": 1},
+        },
+    )
+    await wait_for_rows(engine, "open")
+    assert seen == []
+
+    await engine.start_reaction("watch")
+
+    await wait_for(lambda: len(seen) == 1, description="restarted reaction to replay result")
+    assert seen[0]["results"][0]["data"] == {"id": "o1", "total": 1}
+
+
+@pytest.mark.parametrize("component", ["source", "query", "reaction"])
+async def test_duplicate_component_ids_are_rejected(engine: Drasi, component: str) -> None:
+    await engine.add_python_source("orders")
+    if component == "source":
+        duplicate = engine.add_python_source("orders")
+    else:
+        await engine.add_query("open", OPEN_ORDERS, ["orders"])
+        if component == "query":
+            duplicate = engine.add_query("open", OPEN_ORDERS, ["orders"])
+        else:
+            await engine.add_python_reaction("watch", ["open"], lambda _: None)
+            duplicate = engine.add_python_reaction("watch", ["open"], lambda _: None)
+
+    with pytest.raises(DrasiError) as caught:
+        await duplicate
+    assert caught.value.code == "ENGINE_FAILURE"
+    assert "already exists" in str(caught.value)
 
 
 # --------------------------------------------------------------------- errors

@@ -192,3 +192,9 @@ async def test_updating_an_unknown_kind_is_rejected(engine: Drasi) -> None:
     with pytest.raises(UnknownKindError) as caught:
         await engine.update_source("postgres", "db", {})
     assert caught.value.code == "UNKNOWN_SOURCE_KIND"
+
+
+async def test_unknown_bootstrap_schema_kind_is_rejected(engine: Drasi) -> None:
+    with pytest.raises(UnknownKindError) as caught:
+        await engine.bootstrap_config_schema("missing")
+    assert caught.value.code == "UNKNOWN_BOOTSTRAP_KIND"
