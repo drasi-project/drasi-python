@@ -16,6 +16,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -27,11 +28,14 @@ use pyo3::types::{PyDict, PyList, PyString};
 use pyo3_async_runtimes::tokio::future_into_py;
 use tokio::sync::Mutex;
 
-use crate::components::{BoxedReaction, BoxedSource, PythonReaction, PythonSource, SharedSource};
+use crate::components::{
+    BoxedReaction, BoxedSource, PythonReaction, PythonSource, SharedSource, StreamingReaction,
+};
 use crate::conversions::{json_to_py, py_to_json, source_change_from_py};
 use crate::errors::{engine_error, error, DrasiErrorCode};
 use crate::plugins::{self, LoadSummary, PluginHost, Resolved};
 use crate::stores::CreateOptions;
+use crate::streams::{self, Stream};
 
 /// Shared engine state.
 ///
@@ -45,9 +49,15 @@ pub struct Inner {
     pub plugins: PluginHost,
     /// Directory `install_plugin` writes to when the caller does not pick one.
     default_plugin_dir: Mutex<Option<PathBuf>>,
+    /// Distinguishes the reactions created to back result streams.
+    stream_counter: AtomicU64,
 }
 
 impl Inner {
+    fn next_stream_id(&self) -> u64 {
+        self.stream_counter.fetch_add(1, Ordering::Relaxed)
+    }
+
     /// A per-engine directory for downloaded plugins.
     ///
     /// Downloads are kept out of the working directory, and separated per
@@ -124,6 +134,7 @@ impl Drasi {
                     python_sources: Mutex::new(HashMap::new()),
                     plugins: PluginHost::new(secrets),
                     default_plugin_dir: Mutex::new(None),
+                    stream_counter: AtomicU64::new(0),
                 }),
             })
         })
@@ -328,6 +339,325 @@ impl Drasi {
                 .into_iter()
                 .map(|(id, status)| (id, format!("{status:?}")))
                 .collect::<Vec<_>>())
+        })
+    }
+
+    // -------------------------------------------------------------- streaming
+
+    /// Streams the diffs a query produces.
+    ///
+    /// This is what most callers want: `async for event in drasi.query_results(id)`.
+    /// Result diffs reach subscribers through a reaction, so this registers one
+    /// behind the scenes; it is removed when the engine closes.
+    #[pyo3(signature = (query_id, *, reaction_id = None))]
+    fn query_results<'py>(
+        &self,
+        py: Python<'py>,
+        query_id: String,
+        reaction_id: Option<String>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let id = reaction_id
+                .unwrap_or_else(|| format!("__stream_{query_id}_{}", inner.next_stream_id()));
+            let (receiver, sender) = streams::channel();
+            inner
+                .core
+                .add_reaction(StreamingReaction::new(&id, vec![query_id.clone()], sender))
+                .await
+                .map_err(engine_error)?;
+            Ok(Stream::new(
+                receiver,
+                format!("results of query '{query_id}'"),
+            ))
+        })
+    }
+
+    /// Streams lifecycle events for a query, replaying its history first.
+    fn query_events<'py>(&self, py: Python<'py>, id: String) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let (history, receiver) = inner
+                .core
+                .subscribe_query_events(&id)
+                .await
+                .map_err(engine_error)?;
+            Ok(broadcast_stream(
+                format!("events of query '{id}'"),
+                history,
+                receiver,
+            ))
+        })
+    }
+
+    /// Streams lifecycle events for a source, replaying its history first.
+    fn source_events<'py>(&self, py: Python<'py>, id: String) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let (history, receiver) = inner
+                .core
+                .subscribe_source_events(&id)
+                .await
+                .map_err(engine_error)?;
+            Ok(broadcast_stream(
+                format!("events of source '{id}'"),
+                history,
+                receiver,
+            ))
+        })
+    }
+
+    /// Streams lifecycle events for a reaction, replaying its history first.
+    fn reaction_events<'py>(&self, py: Python<'py>, id: String) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let (history, receiver) = inner
+                .core
+                .subscribe_reaction_events(&id)
+                .await
+                .map_err(engine_error)?;
+            Ok(broadcast_stream(
+                format!("events of reaction '{id}'"),
+                history,
+                receiver,
+            ))
+        })
+    }
+
+    /// Streams lifecycle events for every component.
+    fn all_events<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let events = inner.core.get_all_events().await.map_err(engine_error)?;
+            let (receiver, sender) = streams::channel();
+            streams::pump_stream(events, sender);
+            Ok(Stream::new(receiver, "events of every component"))
+        })
+    }
+
+    /// Streams log lines emitted by a query, replaying its history first.
+    fn query_logs<'py>(&self, py: Python<'py>, id: String) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let (history, receiver) = inner
+                .core
+                .subscribe_query_logs(&id)
+                .await
+                .map_err(engine_error)?;
+            Ok(broadcast_stream(
+                format!("logs of query '{id}'"),
+                history,
+                receiver,
+            ))
+        })
+    }
+
+    /// Streams log lines emitted by a source, replaying its history first.
+    fn source_logs<'py>(&self, py: Python<'py>, id: String) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let (history, receiver) = inner
+                .core
+                .subscribe_source_logs(&id)
+                .await
+                .map_err(engine_error)?;
+            Ok(broadcast_stream(
+                format!("logs of source '{id}'"),
+                history,
+                receiver,
+            ))
+        })
+    }
+
+    /// Streams log lines emitted by a reaction, replaying its history first.
+    fn reaction_logs<'py>(&self, py: Python<'py>, id: String) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let (history, receiver) = inner
+                .core
+                .subscribe_reaction_logs(&id)
+                .await
+                .map_err(engine_error)?;
+            Ok(broadcast_stream(
+                format!("logs of reaction '{id}'"),
+                history,
+                receiver,
+            ))
+        })
+    }
+
+    /// Calls `callback` with each item. The `query_events` iterator is usually nicer.
+    fn on_query_events<'py>(
+        &self,
+        py: Python<'py>,
+        id: String,
+        callback: Py<PyAny>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        require_callable(py, &callback)?;
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let (history, receiver) = inner
+                .core
+                .subscribe_query_events(&id)
+                .await
+                .map_err(engine_error)?;
+            let description = format!("events of query '{id}'");
+            let (rx, sender) = streams::channel();
+            streams::pump_broadcast(history, receiver, sender);
+            streams::pump_callback(rx, callback, description);
+            Ok(())
+        })
+    }
+    /// Calls `callback` with each item. The `source_events` iterator is usually nicer.
+    fn on_source_events<'py>(
+        &self,
+        py: Python<'py>,
+        id: String,
+        callback: Py<PyAny>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        require_callable(py, &callback)?;
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let (history, receiver) = inner
+                .core
+                .subscribe_source_events(&id)
+                .await
+                .map_err(engine_error)?;
+            let description = format!("events of source '{id}'");
+            let (rx, sender) = streams::channel();
+            streams::pump_broadcast(history, receiver, sender);
+            streams::pump_callback(rx, callback, description);
+            Ok(())
+        })
+    }
+    /// Calls `callback` with each item. The `reaction_events` iterator is usually nicer.
+    fn on_reaction_events<'py>(
+        &self,
+        py: Python<'py>,
+        id: String,
+        callback: Py<PyAny>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        require_callable(py, &callback)?;
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let (history, receiver) = inner
+                .core
+                .subscribe_reaction_events(&id)
+                .await
+                .map_err(engine_error)?;
+            let description = format!("events of reaction '{id}'");
+            let (rx, sender) = streams::channel();
+            streams::pump_broadcast(history, receiver, sender);
+            streams::pump_callback(rx, callback, description);
+            Ok(())
+        })
+    }
+    /// Calls `callback` with each item. The `query_logs` iterator is usually nicer.
+    fn on_query_logs<'py>(
+        &self,
+        py: Python<'py>,
+        id: String,
+        callback: Py<PyAny>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        require_callable(py, &callback)?;
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let (history, receiver) = inner
+                .core
+                .subscribe_query_logs(&id)
+                .await
+                .map_err(engine_error)?;
+            let description = format!("logs of query '{id}'");
+            let (rx, sender) = streams::channel();
+            streams::pump_broadcast(history, receiver, sender);
+            streams::pump_callback(rx, callback, description);
+            Ok(())
+        })
+    }
+    /// Calls `callback` with each item. The `source_logs` iterator is usually nicer.
+    fn on_source_logs<'py>(
+        &self,
+        py: Python<'py>,
+        id: String,
+        callback: Py<PyAny>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        require_callable(py, &callback)?;
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let (history, receiver) = inner
+                .core
+                .subscribe_source_logs(&id)
+                .await
+                .map_err(engine_error)?;
+            let description = format!("logs of source '{id}'");
+            let (rx, sender) = streams::channel();
+            streams::pump_broadcast(history, receiver, sender);
+            streams::pump_callback(rx, callback, description);
+            Ok(())
+        })
+    }
+    /// Calls `callback` with each item. The `reaction_logs` iterator is usually nicer.
+    fn on_reaction_logs<'py>(
+        &self,
+        py: Python<'py>,
+        id: String,
+        callback: Py<PyAny>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        require_callable(py, &callback)?;
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let (history, receiver) = inner
+                .core
+                .subscribe_reaction_logs(&id)
+                .await
+                .map_err(engine_error)?;
+            let description = format!("logs of reaction '{id}'");
+            let (rx, sender) = streams::channel();
+            streams::pump_broadcast(history, receiver, sender);
+            streams::pump_callback(rx, callback, description);
+            Ok(())
+        })
+    }
+    /// Calls `callback` with every component's lifecycle events.
+    fn on_all_events<'py>(
+        &self,
+        py: Python<'py>,
+        callback: Py<PyAny>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        require_callable(py, &callback)?;
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let events = inner.core.get_all_events().await.map_err(engine_error)?;
+            let (rx, sender) = streams::channel();
+            streams::pump_stream(events, sender);
+            streams::pump_callback(rx, callback, "events of every component".to_string());
+            Ok(())
+        })
+    }
+
+    /// Calls `callback` with each diff a query produces.
+    ///
+    /// The `query_results(id)` iterator is usually nicer; this exists for
+    /// parity with the Node.js binding.
+    fn on_query_results<'py>(
+        &self,
+        py: Python<'py>,
+        query_id: String,
+        callback: Py<PyAny>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        require_callable(py, &callback)?;
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let reaction_id = format!("__stream_{query_id}_{}", inner.next_stream_id());
+            let description = format!("results of query '{query_id}'");
+            let (rx, sender) = streams::channel();
+            inner
+                .core
+                .add_reaction(StreamingReaction::new(&reaction_id, vec![query_id], sender))
+                .await
+                .map_err(engine_error)?;
+            streams::pump_callback(rx, callback, description);
+            Ok(())
         })
     }
 
@@ -975,4 +1305,30 @@ fn incompatible_plugin(err: impl std::fmt::Display) -> PyErr {
         DrasiErrorCode::PluginIncompatible,
         format!("{err}\nthis host is {}", plugins::describe_host()),
     )
+}
+
+/// Builds a stream fed from a broadcast subscription, replaying history first.
+fn broadcast_stream<T>(
+    description: String,
+    history: Vec<T>,
+    receiver: tokio::sync::broadcast::Receiver<T>,
+) -> Stream
+where
+    T: serde::Serialize + Clone + Send + Sync + 'static,
+{
+    let (rx, sender) = streams::channel();
+    streams::pump_broadcast(history, receiver, sender);
+    Stream::new(rx, description)
+}
+
+/// Rejects a non-callable before any work is scheduled.
+fn require_callable(py: Python<'_>, callback: &Py<PyAny>) -> PyResult<()> {
+    if callback.bind(py).is_callable() {
+        Ok(())
+    } else {
+        Err(error(
+            DrasiErrorCode::ConfigInvalid,
+            "a stream callback must be callable",
+        ))
+    }
 }

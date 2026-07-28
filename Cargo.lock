@@ -878,6 +878,7 @@ dependencies = [
  "drasi-lib",
  "drasi-plugin-sdk",
  "drasi-state-store-redb",
+ "futures-util",
  "log",
  "pyo3",
  "pyo3-async-runtimes",

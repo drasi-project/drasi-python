@@ -28,6 +28,7 @@ mod plugins;
 mod runtime;
 mod secrets;
 mod stores;
+mod streams;
 
 use pyo3::prelude::*;
 
@@ -51,6 +52,7 @@ fn _drasi(module: &Bound<'_, PyModule>) -> PyResult<()> {
 
     module.add_function(wrap_pyfunction!(host::host_info, module)?)?;
     module.add_class::<engine::Drasi>()?;
+    module.add_class::<streams::Stream>()?;
     errors::register(module)?;
 
     Ok(())

@@ -36,6 +36,7 @@ use pyo3::prelude::*;
 use serde_json::Value;
 
 use crate::conversions::json_to_py;
+use crate::streams::{StreamItem, StreamSender};
 
 /// The `type_name` reported by components defined in Python.
 const PYTHON_COMPONENT_TYPE: &str = "python";
@@ -290,6 +291,100 @@ impl Reaction for BoxedReaction {
 
     async fn deprovision(&self) -> Result<()> {
         self.0.deprovision().await
+    }
+}
+
+/// A reaction that forwards query results into a [`Stream`].
+///
+/// Result diffs only reach subscribers through a reaction, so streaming a
+/// query's results means registering one.
+pub struct StreamingReaction {
+    base: ReactionBase,
+    /// Taken when the reaction starts, so the only remaining copy lives in the
+    /// processing task. That matters for shutdown: once the task ends the last
+    /// sender drops, the channel closes, and an open `async for` terminates
+    /// instead of hanging.
+    sender: std::sync::Mutex<Option<StreamSender>>,
+}
+
+impl StreamingReaction {
+    pub fn new(id: &str, query_ids: Vec<String>, sender: StreamSender) -> Self {
+        Self {
+            base: ReactionBase::new(ReactionBaseParams::new(id, query_ids)),
+            sender: std::sync::Mutex::new(Some(sender)),
+        }
+    }
+}
+
+#[async_trait]
+impl Reaction for StreamingReaction {
+    fn id(&self) -> &str {
+        self.base.get_id()
+    }
+
+    fn type_name(&self) -> &str {
+        PYTHON_COMPONENT_TYPE
+    }
+
+    fn properties(&self) -> HashMap<String, Value> {
+        HashMap::new()
+    }
+
+    fn query_ids(&self) -> Vec<String> {
+        self.base.get_queries().to_vec()
+    }
+
+    fn auto_start(&self) -> bool {
+        self.base.get_auto_start()
+    }
+
+    async fn initialize(&self, context: ReactionRuntimeContext) {
+        self.base.initialize(context).await;
+    }
+
+    async fn start(&self) -> Result<()> {
+        let shutdown_rx = self.base.create_shutdown_channel().await;
+        let checkpoints = self.base.read_all_checkpoints().await.unwrap_or_default();
+        let base = self.base.clone_shared();
+        let Some(sender) = self.sender.lock().ok().and_then(|mut held| held.take()) else {
+            // Already started once; the stream it fed is gone.
+            self.base.set_status(ComponentStatus::Running, None).await;
+            return Ok(());
+        };
+
+        let task = tokio::spawn(async move {
+            let result = base
+                .run_standard_loop(shutdown_rx, checkpoints, move |event| {
+                    let sender = sender.clone();
+                    async move {
+                        let value = serde_json::to_value(&*event)?;
+                        // A dropped stream should stop the reaction quietly
+                        // rather than fail the checkpoint forever.
+                        let _ = sender.send(StreamItem::Value(value)).await;
+                        Ok(())
+                    }
+                })
+                .await;
+            if let Err(err) = result {
+                log::error!("streaming reaction loop stopped: {err:#}");
+            }
+        });
+
+        self.base.set_processing_task(task).await;
+        self.base.set_status(ComponentStatus::Running, None).await;
+        Ok(())
+    }
+
+    async fn stop(&self) -> Result<()> {
+        self.base.stop_common().await
+    }
+
+    async fn status(&self) -> ComponentStatus {
+        self.base.get_status().await
+    }
+
+    async fn enqueue_query_result(&self, result: QueryResult) -> Result<()> {
+        self.base.enqueue_query_result(result).await
     }
 }
 

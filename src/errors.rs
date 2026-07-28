@@ -62,6 +62,7 @@ pub enum DrasiErrorCode {
     PluginSignatureInvalid,
     PluginIncompatible,
     PluginNotFound,
+    StreamLagged,
     EngineFailure,
 }
 
@@ -93,6 +94,7 @@ impl DrasiErrorCode {
             Self::PluginSignatureInvalid => "PLUGIN_SIGNATURE_INVALID",
             Self::PluginIncompatible => "PLUGIN_INCOMPATIBLE",
             Self::PluginNotFound => "PLUGIN_NOT_FOUND",
+            Self::StreamLagged => "STREAM_LAGGED",
             Self::EngineFailure => "ENGINE_FAILURE",
         }
     }
@@ -126,6 +128,7 @@ impl DrasiErrorCode {
             PluginSignatureInvalid,
             PluginIncompatible,
             PluginNotFound,
+            StreamLagged,
             EngineFailure,
         ]
     }
@@ -162,6 +165,7 @@ impl DrasiErrorCode {
             PluginSignatureInvalid => py.get_type::<PluginSignatureError>().into(),
             PluginIncompatible => py.get_type::<PluginCompatibilityError>().into(),
             PluginNotFound => py.get_type::<PluginNotFoundError>().into(),
+            StreamLagged => py.get_type::<StreamLaggedError>().into(),
             EngineFailure => py.get_type::<DrasiError>().into(),
         }
     }
@@ -185,6 +189,12 @@ create_exception!(
     SourceError,
     DrasiError,
     "A change could not be pushed into a Python-defined source."
+);
+create_exception!(
+    _drasi,
+    StreamLaggedError,
+    DrasiError,
+    "A stream dropped items because they were not consumed quickly enough."
 );
 create_exception!(
     _drasi,
@@ -242,6 +252,10 @@ pub fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
         module.py().get_type::<UnknownKindError>(),
     )?;
     module.add("SourceError", module.py().get_type::<SourceError>())?;
+    module.add(
+        "StreamLaggedError",
+        module.py().get_type::<StreamLaggedError>(),
+    )?;
     module.add("PluginError", module.py().get_type::<PluginError>())?;
     module.add(
         "PluginNotFoundError",
