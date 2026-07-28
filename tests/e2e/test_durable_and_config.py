@@ -24,7 +24,7 @@ import pytest
 
 from drasi import ConfigError, Drasi, DrasiError, UnknownKindError
 
-from .helpers import wait_for, wait_for_query_running, wait_for_rows
+from .helpers import wait_for, wait_for_at_least_rows, wait_for_query_running
 
 ORDERS_QUERY = "MATCH (o:Order) RETURN o.id AS id"
 COUNTER_QUERY = "MATCH (c:Counter) RETURN c.value AS value"
@@ -249,7 +249,7 @@ async def test_from_config_wires_plugins_sources_queries_and_reactions() -> None
         assert dict(await drasi.list_reactions())["logger"] == "Running"
 
         await drasi.wait_for_query("counts")
-        assert len(await wait_for_rows(drasi, "counts", count=10)) == 10
+        assert len(await wait_for_at_least_rows(drasi, "counts", count=10)) >= 10
     finally:
         await drasi.close()
 

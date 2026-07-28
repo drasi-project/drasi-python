@@ -29,7 +29,7 @@ import pytest
 
 from drasi import Drasi, UnknownKindError
 
-from .helpers import wait_for_query_running, wait_for_rows
+from .helpers import wait_for_at_least_rows, wait_for_query_running
 
 pytestmark = pytest.mark.plugins
 
@@ -63,7 +63,7 @@ async def test_a_cdylib_source_feeds_a_continuous_query(engine: Drasi, plugin_di
     await engine.add_query("counts", COUNTER_QUERY, ["counters"])
     await wait_for_query_running(engine, "counts")
 
-    rows = await wait_for_rows(engine, "counts", count=10)
+    rows = await wait_for_at_least_rows(engine, "counts", count=10)
     assert all(isinstance(row["value"], int) for row in rows)
 
 

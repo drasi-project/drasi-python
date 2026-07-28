@@ -32,7 +32,7 @@ import pytest
 
 from drasi import Drasi, PluginCompatibilityError, PluginSignatureError, host_info
 
-from .helpers import wait_for_query_running, wait_for_rows
+from .helpers import wait_for_at_least_rows, wait_for_query_running
 
 pytestmark = pytest.mark.oci
 
@@ -106,7 +106,7 @@ async def test_install_downloads_loads_and_runs_a_plugin(engine: Drasi, tmp_path
     await engine.add_query("counts", COUNTER_QUERY, ["counters"])
     await wait_for_query_running(engine, "counts")
 
-    rows = await wait_for_rows(engine, "counts", count=10)
+    rows = await wait_for_at_least_rows(engine, "counts", count=10)
     assert all("value" in row for row in rows)
 
 

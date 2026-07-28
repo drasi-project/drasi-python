@@ -22,7 +22,7 @@ import pytest
 
 from drasi import ConfigError, Drasi, DrasiError, UnknownKindError, host_info
 
-from .helpers import wait_for_query_running, wait_for_rows
+from .helpers import wait_for_at_least_rows, wait_for_query_running, wait_for_rows
 
 COUNTER_QUERY = "MATCH (c:Counter) RETURN c.value AS value"
 ORDERS_QUERY = "MATCH (o:Order) RETURN o.id AS id"
@@ -182,7 +182,7 @@ async def test_a_plugin_resolves_a_secret_reference(engine_factory) -> None:
         await drasi.add_query("counts", COUNTER_QUERY, ["counters"])
         await wait_for_query_running(drasi, "counts")
 
-        rows = await wait_for_rows(drasi, "counts", count=10)
+        rows = await wait_for_at_least_rows(drasi, "counts", count=10)
         assert all("value" in row for row in rows)
 
 
@@ -213,7 +213,7 @@ async def test_a_plugin_resolves_an_environment_variable(
         await drasi.add_query("counts", COUNTER_QUERY, ["counters"])
         await wait_for_query_running(drasi, "counts")
 
-        assert len(await wait_for_rows(drasi, "counts", count=10)) == 10
+        assert len(await wait_for_at_least_rows(drasi, "counts", count=10)) >= 10
 
 
 @pytest.mark.plugins

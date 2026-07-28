@@ -97,6 +97,34 @@ async def wait_for_rows(
     )
 
 
+async def wait_for_at_least_rows(
+    engine: Drasi,
+    query_id: str,
+    *,
+    count: int = 1,
+    timeout: float = DEFAULT_TIMEOUT,
+) -> list[dict[str, Any]]:
+    """Waits until a query's result set has at least `count` rows.
+
+    Use this, not `wait_for_rows`, for a source that keeps producing. A counter
+    source emitting every few milliseconds can step straight past an exact
+    count between two polls, so waiting for equality there is a race that fails
+    once the runner is loaded enough.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    rows: list[dict[str, Any]] = []
+    while loop.time() < deadline:
+        rows = await engine.get_query_results(query_id)
+        if len(rows) >= count:
+            return rows
+        await asyncio.sleep(POLL_INTERVAL)
+    raise AssertionError(
+        f"timed out after {timeout}s waiting for at least {count} row(s) from "
+        f"query {query_id!r}; last saw {len(rows)}"
+    )
+
+
 async def wait_for_result(
     engine: Drasi,
     query_id: str,
