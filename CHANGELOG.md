@@ -33,6 +33,8 @@ under `Unreleased` until the first `v0.1.0` tag is cut.
 - CI, examples, end-to-end tests, plugin tests, documentation for plugins,
   examples and the API surface audit.
 - `ENGINE_CLOSED` error code, raised when a closed engine is asked to change.
+- `host_info()["index_backends"]`, reporting which index backends were compiled
+  in, so callers can tell whether RocksDB is available in their build.
 
 ### Fixed
 
@@ -41,3 +43,8 @@ under `Unreleased` until the first `v0.1.0` tag is cut.
   mutating calls succeeded after `close()`, and the component then silently
   never ran. Reads are still allowed, since inspecting a closed engine is
   harmless and useful.
+- The RocksDB tests decided availability from an environment variable rather
+  than from the build, so they disagreed with reality whenever the two drifted.
+  Release wheels are built with the feature but tested without the variable,
+  which would have failed the release smoke test on every platform. They now
+  ask the build.

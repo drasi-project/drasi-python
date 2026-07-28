@@ -16,12 +16,11 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
 
-from drasi import ConfigError, Drasi, DrasiError, UnknownKindError
+from drasi import ConfigError, Drasi, DrasiError, UnknownKindError, host_info
 
 from .helpers import wait_for_query_running, wait_for_rows
 
@@ -30,8 +29,14 @@ ORDERS_QUERY = "MATCH (o:Order) RETURN o.id AS id"
 
 
 def rocksdb_available() -> bool:
-    """The index store is behind a Cargo feature, so builds differ."""
-    return os.environ.get("DRASI_ROCKSDB") == "1"
+    """Ask the build, not the environment.
+
+    RocksDB is behind a Cargo feature, so availability depends on how the
+    extension was compiled. Gating on an environment variable meant these tests
+    disagreed with reality whenever the two drifted — notably for release
+    wheels, which are built with the feature but tested without the variable.
+    """
+    return "rocksdb" in host_info()["index_backends"]
 
 
 # ------------------------------------------------------------------- validation

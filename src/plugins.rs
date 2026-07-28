@@ -554,6 +554,19 @@ pub fn host_arch_suffix() -> Option<String> {
     target_triple_to_arch_suffix(target_triple())
 }
 
+/// Index backends compiled into this build.
+///
+/// RocksDB is behind a Cargo feature, so whether it is available depends on how
+/// the wheel was built. Reporting it lets callers — and tests — ask the build
+/// rather than guess from an environment variable.
+pub fn index_backends() -> Vec<&'static str> {
+    let mut backends = vec!["memory"];
+    if cfg!(feature = "rocksdb") {
+        backends.push("rocksdb");
+    }
+    backends
+}
+
 /// A description of this host, for error messages and diagnostics.
 pub fn describe_host() -> Value {
     serde_json::json!({
@@ -563,6 +576,7 @@ pub fn describe_host() -> Value {
         "sdk_version": DRASI_SDK_VERSION,
         "core_version": DRASI_CORE_VERSION,
         "lib_version": DRASI_LIB_VERSION,
+        "index_backends": index_backends(),
     })
 }
 

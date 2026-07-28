@@ -114,6 +114,8 @@ class HostInfo(TypedDict):
     sdk_version: str
     core_version: str
     lib_version: str
+    index_backends: list[str]
+    """Index backends compiled in. `rocksdb` is behind a build feature."""
 
 
 # --------------------------------------------------------------------- changes

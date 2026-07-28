@@ -52,6 +52,7 @@ class HostInfo(TypedDict):
     sdk_version: str
     core_version: str
     lib_version: str
+    index_backends: list[str]
 
 class JoinKey(TypedDict):
     label: str

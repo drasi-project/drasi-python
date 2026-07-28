@@ -385,11 +385,12 @@ jobs:
         run: |
           .venv/bin/maturin develop --features rocksdb
 
+      # The tests ask the build which index backends it has, so no environment
+      # variable is needed — and cannot drift from what was actually compiled.
       - name: RocksDB-backed index store tests
-        env:
-          DRASI_ROCKSDB: "1"
         run: |
-          .venv/bin/pytest tests/e2e/test_stores.py -k rocksdb -v
+          .venv/bin/python -c "import drasi; assert 'rocksdb' in drasi.host_info()['index_backends']"
+          .venv/bin/pytest tests/e2e/test_stores.py -v
 
   coverage:
     name: Conversion and error coverage
