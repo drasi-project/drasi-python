@@ -143,9 +143,39 @@ impl Inner {
             );
             if !already_running {
                 self.core.start_query(&id).await.map_err(engine_error)?;
+                self.await_query_running(&id).await?;
             }
         }
         Ok(())
+    }
+
+    /// Waits for a query to reach `Running`.
+    ///
+    /// `start_query` returns once the transition is under way, not once it has
+    /// finished, so without this `start()` hands back an engine whose queries
+    /// still reject reads with "Query '...' is not running".
+    async fn await_query_running(&self, id: &str) -> PyResult<()> {
+        const TIMEOUT: Duration = Duration::from_secs(30);
+        let deadline = tokio::time::Instant::now() + TIMEOUT;
+        loop {
+            match self.core.get_query_status(id).await {
+                Ok(ComponentStatus::Running) => return Ok(()),
+                Ok(ComponentStatus::Error) => {
+                    return Err(error(
+                        DrasiErrorCode::EngineFailure,
+                        format!("query '{id}' entered the error state while starting"),
+                    ))
+                }
+                _ => {}
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return Err(error(
+                    DrasiErrorCode::EngineFailure,
+                    format!("query '{id}' did not start within {}s", TIMEOUT.as_secs()),
+                ));
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
     }
 
     async fn forget_deferred_query(&self, id: &str) {
