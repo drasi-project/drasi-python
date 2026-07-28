@@ -420,10 +420,13 @@ jobs:
 
       # The conversion and error layers are where a silent mistake turns into a
       # wrong query result rather than a crash, so they are held to a high bar.
+      # `stores.rs` and `streams.rs` are excluded because `--lib` runs only the
+      # Rust unit tests; those two are exercised through the Python end-to-end
+      # tiers, so counting them here would measure the wrong thing.
       - name: Coverage gate
         env:
           PYO3_PYTHON: ${{ github.workspace }}/.venv/bin/python
         run: |
           cargo llvm-cov --lib \
-            --ignore-filename-regex '(engine|components|plugins|host|runtime|lib)\.rs$' \
+            --ignore-filename-regex '(engine|components|plugins|host|runtime|lib|stores|streams)\.rs$' \
             --fail-under-lines 80

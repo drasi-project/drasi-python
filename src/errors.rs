@@ -278,3 +278,67 @@ pub fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("ERROR_CODES", codes)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// PyO3 needs a live interpreter before an exception object can be built.
+    fn init() {
+        Python::initialize();
+    }
+
+    #[test]
+    fn every_code_has_a_unique_screaming_snake_name() {
+        let mut seen = std::collections::HashSet::new();
+        for code in DrasiErrorCode::all() {
+            let name = code.as_str();
+            assert!(seen.insert(name), "duplicate error code: {name}");
+            assert!(
+                !name.is_empty()
+                    && name
+                        .chars()
+                        .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_'),
+                "{name} is not SCREAMING_SNAKE_CASE"
+            );
+        }
+    }
+
+    /// Every code must reach a real exception class and carry its own code, so
+    /// that `except DrasiError as e: e.code` is reliable for all of them.
+    #[test]
+    fn every_code_builds_an_exception_carrying_its_code_and_message() {
+        init();
+        Python::attach(|py| {
+            let root = py.get_type::<DrasiError>();
+            for code in DrasiErrorCode::all() {
+                let name = code.as_str();
+                let err = error(*code, "boom");
+                let value = err.value(py);
+                assert!(
+                    value.is_instance(root.as_any()).unwrap(),
+                    "{name} is not rooted at DrasiError"
+                );
+                assert_eq!(
+                    value.getattr("code").unwrap().extract::<String>().unwrap(),
+                    name
+                );
+                assert_eq!(value.str().unwrap().to_string(), "boom");
+            }
+        });
+    }
+
+    #[test]
+    fn an_engine_failure_reports_the_underlying_message() {
+        init();
+        Python::attach(|py| {
+            let err = engine_error("connection refused");
+            let value = err.value(py);
+            assert_eq!(
+                value.getattr("code").unwrap().extract::<String>().unwrap(),
+                DrasiErrorCode::EngineFailure.as_str()
+            );
+            assert_eq!(value.str().unwrap().to_string(), "connection refused");
+        });
+    }
+}
