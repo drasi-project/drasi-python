@@ -43,17 +43,43 @@ Before changing those pins, read `docs/plugins.md` and run:
 
 ## One-time PyPI trusted publishing setup
 
-A PyPI project owner must configure trusted publishing before the first tag is
-pushed:
+`drasi-lib` does not exist on PyPI yet, so this uses the **pending publisher**
+flow: a trusted publisher registered before the project exists. The project is
+created automatically by the first successful upload. The per-project settings
+page cannot be used until the project exists, which is the usual source of
+confusion here.
 
-1. Create the `drasi-lib` project on PyPI, if it does not exist yet.
-2. Add a trusted publisher for `drasi-project/drasi-python`.
-3. Point it at the release workflow file, `release.yml`.
-4. Set the environment name if the workflow uses one. Keep the PyPI setting and
-   workflow in sync.
+A PyPI account with permission to claim the name must:
 
-No PyPI API token should be stored in GitHub. The release workflow is expected
-to publish with OIDC trusted publishing.
+1. Sign in to PyPI and open
+   <https://pypi.org/manage/account/publishing/>.
+2. Under **Add a new pending publisher**, choose GitHub and enter exactly:
+
+   | Field | Value |
+   | --- | --- |
+   | PyPI Project Name | `drasi-lib` |
+   | Owner | `drasi-project` |
+   | Repository name | `drasi-python` |
+   | Workflow name | `release.yml` |
+   | Environment name | *leave blank* |
+
+3. Save it.
+
+The environment field must be blank because the `publish` job in
+`.github/workflows/release.yml` declares no `environment:`. If you add one on
+either side, add it to both — a mismatch fails the OIDC exchange with a
+confusing "not a trusted publisher" error rather than a helpful one.
+
+Nothing else is needed: no PyPI API token, and no GitHub secret. The workflow
+publishes with OIDC, which is why its `publish` job requests
+`permissions: id-token: write`.
+
+Once the first release is published, the pending publisher becomes a normal
+trusted publisher on the project, manageable from the project's own settings.
+
+To rehearse without touching the real index, register the same pending
+publisher on <https://test.pypi.org/manage/account/publishing/> and point the
+publish step at TestPyPI with `repository-url`.
 
 ## Cutting a release
 
