@@ -28,10 +28,16 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Linux runners are pinned to an explicit image rather than `ubuntu-latest`.
+# The `ubuntu-latest` alias pool has been subject to prolonged starvation
+# (measured 2h24m to allocate, while `ubuntu-24.04` allocated in 2s from the
+# same repo at the same moment). Pinning also keeps the toolchain reproducible.
+# Re-pin deliberately when upgrading; do not revert to `ubuntu-latest`.
+
 jobs:
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -66,7 +72,7 @@ jobs:
 
   registry-pins:
     name: Registry pin drift
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       # Published plugins record the Drasi versions they were built against, and
@@ -81,7 +87,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-24.04, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -127,13 +133,13 @@ jobs:
           # abi3 gives one wheel for 3.10+, but the Python facade still needs
           # version coverage. Keep the expensive OS cross-product on 3.12, then
           # sweep every supported Python on Linux where runners are fastest.
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             python: "3.10"
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             python: "3.11"
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             python: "3.12"
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             python: "3.13"
           - os: macos-latest
             python: "3.12"
@@ -195,7 +201,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-24.04, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -267,7 +273,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-24.04, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -321,8 +327,8 @@ jobs:
           "$PYTEST" -m "oci and not docker" -v
 
   docker:
-    name: Docker services (ubuntu-latest, py3.12)
-    runs-on: ubuntu-latest
+    name: Docker services (ubuntu-24.04, py3.12)
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -356,8 +362,8 @@ jobs:
           .venv/bin/pytest -m docker -v
 
   rocksdb:
-    name: RocksDB feature (ubuntu-latest, py3.12)
-    runs-on: ubuntu-latest
+    name: RocksDB feature (ubuntu-24.04, py3.12)
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -394,7 +400,7 @@ jobs:
 
   coverage:
     name: Conversion and error coverage
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
