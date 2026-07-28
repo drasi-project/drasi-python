@@ -162,8 +162,8 @@ To rehearse without touching the real index, repeat the setup on
 3. Create and push a signed tag matching the package version:
 
    ```bash
-   git tag -s v0.1.1 -m "v0.1.1"
-   git push origin v0.1.1
+   git tag -s v0.1.2 -m "v0.1.2"
+   git push origin v0.1.2
    ```
 
 4. The release workflow should build abi3 wheels for the supported Linux,
@@ -180,11 +180,11 @@ version:
 
 ```bash
 uv venv --python 3.12 .release-check
-uv pip install --python .release-check/bin/python drasi-lib==0.1.1
+uv pip install --python .release-check/bin/python drasi-lib==0.1.2
 .release-check/bin/python - <<'PY'
 import drasi
 
-assert drasi.__version__ == "0.1.1", drasi.__version__
+assert drasi.__version__ == "0.1.2", drasi.__version__
 assert ".release-check" in drasi.__file__, f"import leaked from {drasi.__file__}"
 print(drasi.host_info())
 PY

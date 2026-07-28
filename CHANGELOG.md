@@ -7,6 +7,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.1.2] - 2026-07-28
+
 ### Added
 
 - `add_source(..., bootstrap={"kind": ..., ...})`, which attaches a bootstrap
@@ -18,6 +22,24 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   `bootstrap/postgres`, but nothing attached it - `add_source` never called the
   source's `set_bootstrap_provider` - so installing it appeared to succeed and
   then did nothing, which looked like the source silently dropping data.
+
+### Fixed
+
+- `make typecheck` reported 1653 errors on a clean tree and CI never ran it.
+  Nearly all of them came from pyright resolving imports against the wrong
+  interpreter, which left every value derived from `drasi` as `Unknown`. CI now
+  runs it.
+- 23 `TypedDict`s were declared both in `types.py` and in the stub, and had
+  already drifted: `SourceChange.op` was `ChangeOp` in one and `str` in the
+  other. `types.py` is now the single source of truth.
+- `SourceChange` documented the Node.js spellings `startId`, `endId`, `inId`
+  and `outId` but did not declare them, so following the docstring failed type
+  checking. All three spellings were confirmed at runtime.
+- The sync facade declared weaker return types than it returns, for example
+  `dict[str, int]` where it returns `LoadSummary`.
+- Directory arguments were typed `str` although the Rust side accepts any
+  `PathLike`, which our own tests rely on.
+- `ResultDiff.type` was optional although it is always present.
 
 ## [0.1.1] - 2026-07-28
 
