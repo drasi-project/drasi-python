@@ -26,6 +26,8 @@ mod errors;
 mod host;
 mod plugins;
 mod runtime;
+mod secrets;
+mod stores;
 
 use pyo3::prelude::*;
 

@@ -22,7 +22,8 @@ interpreter exit.
 from __future__ import annotations
 
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
+from typing import Any
 
 import pytest
 
@@ -37,6 +38,20 @@ async def engine(request: pytest.FixtureRequest) -> AsyncIterator[Drasi]:
         yield instance
     finally:
         await instance.close()
+
+
+@pytest.fixture
+def engine_factory() -> Callable[..., Awaitable[Drasi]]:
+    """Creates an engine with options, for tests that need stores or secrets.
+
+    Unlike the `engine` fixture this does not close for you, so use it with
+    `async with`.
+    """
+
+    async def create(engine_id: str, **options: Any) -> Drasi:
+        return await Drasi.create(engine_id[:96], **options)
+
+    return create
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:

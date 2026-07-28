@@ -30,7 +30,7 @@ drasi-core = "=0.5.7"
 drasi-host-sdk = { version = "=0.10.0", features = ["watcher", "registry"] }
 drasi-plugin-sdk = "=0.10.0"
 drasi-state-store-redb = "=0.2.4"
-drasi-index-rocksdb = { version = "=0.5.8", optional = true }
+drasi-index-rocksdb = { version = "=0.5.8", optional = true, features = ["plugin-descriptor"] }
 
 anyhow = "1"
 async-trait = "0.1"

@@ -45,6 +45,7 @@ use serde_json::Value;
 use tokio::sync::Mutex;
 
 use crate::host::{ffi_sdk_version, target_triple};
+use crate::secrets::{resolve_config_value, ConfigResolverContext};
 use crate::{DRASI_CORE_VERSION, DRASI_LIB_VERSION, DRASI_SDK_VERSION};
 
 /// The registry official Drasi plugins are published to.
@@ -90,6 +91,11 @@ unsafe impl Sync for CallbackPtr {}
 /// descriptors hold function pointers into its cdylib, so dropping the library
 /// would leave them dangling.
 pub struct PluginHost {
+    /// Context pointer injected into every loaded plugin so it can resolve
+    /// secret and environment-variable references in its own config. The
+    /// backing `Arc` is intentionally leaked, since a plugin may resolve at any
+    /// point in its life.
+    resolver_ctx: CallbackPtr,
     registry: Mutex<PluginRegistry>,
     loaded: Mutex<Vec<LoadedPlugin>>,
     callbacks: Mutex<Option<Arc<InstanceCallbackContext>>>,
@@ -98,15 +104,11 @@ pub struct PluginHost {
     callback_ptrs: std::sync::Mutex<Vec<CallbackPtr>>,
 }
 
-impl Default for PluginHost {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl PluginHost {
-    pub fn new() -> Self {
+    pub fn new(secrets: HashMap<String, String>) -> Self {
+        let resolver = Arc::new(ConfigResolverContext::new(secrets));
         Self {
+            resolver_ctx: CallbackPtr(resolver.into_raw()),
             registry: Mutex::new(PluginRegistry::new()),
             loaded: Mutex::new(Vec::new()),
             callbacks: Mutex::new(None),
@@ -274,6 +276,13 @@ impl PluginHost {
             }
         }
         drop(registry);
+
+        // A plugin cannot read a secret itself; it calls back through this.
+        // Injecting before the descriptors are used means the very first
+        // component created from them can already resolve references.
+        for plugin in &plugins {
+            plugin.inject_config_resolver(self.resolver_ctx.0, resolve_config_value);
+        }
 
         // Keep the libraries alive; the registered descriptors point into them.
         self.loaded.lock().await.extend(plugins);

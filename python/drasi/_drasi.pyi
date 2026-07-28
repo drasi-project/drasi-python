@@ -27,6 +27,22 @@ ERROR_CODES: list[str]
 QueryLanguage = Literal["cypher", "gql"]
 DiffType = Literal["ADD", "UPDATE", "DELETE", "aggregation", "noop"]
 
+class StateStore(TypedDict):
+    kind: Literal["redb"]
+    path: str
+
+class IndexStore(TypedDict, total=False):
+    kind: Literal["rocksdb"]
+    path: str
+    enable_archive: bool
+    direct_io: bool
+
+class Identity(TypedDict, total=False):
+    kind: Literal["password", "token"]
+    username: str
+    password: str
+    token: str
+
 class HostInfo(TypedDict):
     """The versions and platform a plugin must match to be loadable."""
 
@@ -141,7 +157,14 @@ class Drasi:
     @property
     def id(self) -> str: ...
     @staticmethod
-    def create(id: str) -> Awaitable[Drasi]: ...
+    def create(
+        id: str,
+        *,
+        secrets: Mapping[str, str] | None = None,
+        state_store: StateStore | None = None,
+        index_store: IndexStore | None = None,
+        identity: Identity | None = None,
+    ) -> Awaitable[Drasi]: ...
     async def __aenter__(self) -> Drasi: ...
     async def __aexit__(
         self,

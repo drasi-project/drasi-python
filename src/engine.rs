@@ -31,6 +31,7 @@ use crate::components::{BoxedReaction, BoxedSource, PythonReaction, PythonSource
 use crate::conversions::{json_to_py, py_to_json, source_change_from_py};
 use crate::errors::{engine_error, error, DrasiErrorCode};
 use crate::plugins::{self, LoadSummary, PluginHost, Resolved};
+use crate::stores::CreateOptions;
 
 /// Shared engine state.
 ///
@@ -93,20 +94,35 @@ impl Drasi {
 #[pymethods]
 impl Drasi {
     /// Builds an engine. Await the result to obtain the `Drasi` instance.
+    ///
+    /// The optional stores are all in-memory unless configured: `secrets` seeds
+    /// the store plugins resolve `ConfigValue::Secret` against, `state_store`
+    /// persists plugin state, `index_store` persists query indexes, and
+    /// `identity` supplies credentials to plugins that ask for them.
     #[staticmethod]
-    fn create(py: Python<'_>, id: String) -> PyResult<Bound<'_, PyAny>> {
+    #[pyo3(signature = (id, *, secrets = None, state_store = None, index_store = None, identity = None))]
+    fn create<'py>(
+        py: Python<'py>,
+        id: String,
+        secrets: Option<HashMap<String, String>>,
+        state_store: Option<&Bound<'py, PyAny>>,
+        index_store: Option<&Bound<'py, PyAny>>,
+        identity: Option<&Bound<'py, PyAny>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        // Parse eagerly so a malformed option raises before the caller awaits.
+        let options = CreateOptions::parse(secrets, state_store, index_store, identity)?;
+
         future_into_py(py, async move {
-            let core = DrasiLib::builder()
-                .with_id(id.clone())
-                .build()
-                .await
-                .map_err(engine_error)?;
+            let (builder, secrets) = options
+                .apply(DrasiLib::builder().with_id(id.clone()))
+                .await?;
+            let core = builder.build().await.map_err(engine_error)?;
             Ok(Drasi {
                 inner: Arc::new(Inner {
                     id,
                     core,
                     python_sources: Mutex::new(HashMap::new()),
-                    plugins: PluginHost::new(),
+                    plugins: PluginHost::new(secrets),
                     default_plugin_dir: Mutex::new(None),
                 }),
             })

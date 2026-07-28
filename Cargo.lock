@@ -777,12 +777,14 @@ version = "0.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac63be55f0699830a14ef87b06196d7dd67ec608f84bccafb5fc965a90858c35"
 dependencies = [
+ "anyhow",
  "async-stream",
  "async-trait",
  "bit-set",
  "bytes",
  "chrono",
  "drasi-core",
+ "drasi-plugin-sdk",
  "drasi-query-ast",
  "fastmurmur3",
  "fnv",
@@ -796,6 +798,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+ "utoipa",
 ]
 
 [[package]]
