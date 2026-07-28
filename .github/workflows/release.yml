@@ -46,7 +46,11 @@ jobs:
             target: aarch64-unknown-linux-gnu
           - os: macos-latest
             target: aarch64-apple-darwin
-          - os: macos-13
+          # macOS 13 was retired, so its label never allocates a runner and the
+          # job queues forever. `macos-15-intel` is the standard x64 label; the
+          # older of the two available keeps the deployment target floor lower
+          # for consumers, in the same spirit as ubuntu-22.04 above.
+          - os: macos-15-intel
             target: x86_64-apple-darwin
           - os: windows-latest
             target: x86_64-pc-windows-msvc
