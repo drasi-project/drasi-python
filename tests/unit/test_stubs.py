@@ -69,9 +69,24 @@ def test_stub_declares_every_engine_method(stub: ast.Module) -> None:
     assert not declared - actual, "the stub declares methods the extension lacks"
 
 
-def test_stub_declares_everything_the_package_exports(stub: ast.Module) -> None:
-    missing = set(drasi.__all__) - _top_level_names(stub)
+def test_stub_declares_everything_the_extension_exports(stub: ast.Module) -> None:
+    """Only the native module needs stubbing.
+
+    The pure-Python submodules (`drasi.sync`, `drasi.types`) are typed inline.
+    """
+    from types import ModuleType
+
+    native = {name for name in drasi.__all__ if not isinstance(getattr(drasi, name), ModuleType)}
+    missing = native - _top_level_names(stub)
     assert not missing, f"the stub is missing {sorted(missing)}"
+
+
+def test_the_python_submodules_are_importable_and_typed() -> None:
+    from drasi import sync, types
+
+    assert (ROOT / "python" / "drasi" / "sync.py").exists()
+    assert (ROOT / "python" / "drasi" / "types.py").exists()
+    assert sync.__all__ and types.__all__
 
 
 def test_py_typed_marker_is_present() -> None:

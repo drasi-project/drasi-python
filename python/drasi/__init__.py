@@ -12,8 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Embed the Drasi continuous-query engine directly in your Python application."""
+"""Embed the Drasi continuous-query engine directly in your Python application.
 
+`drasi.Drasi` is async. For scripts and notebooks, `drasi.sync.Drasi` offers the
+same API without `await`.
+"""
+
+from . import sync, types
 from ._drasi import (
     DRASI_CORE_VERSION,
     DRASI_LIB_VERSION,
@@ -35,6 +40,8 @@ from ._drasi import (
 )
 
 __all__ = [
+    "sync",
+    "types",
     "DRASI_CORE_VERSION",
     "DRASI_LIB_VERSION",
     "DRASI_SDK_VERSION",
