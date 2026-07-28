@@ -1,7 +1,6 @@
 # Releasing
 
 This package is the `drasi-lib` PyPI distribution and is imported as `drasi`.
-It is not yet released to PyPI.
 
 ## Versioning policy
 
@@ -43,7 +42,8 @@ Before changing those pins, read `docs/plugins.md` and run:
 
 ## One-time PyPI trusted publishing setup
 
-`drasi-lib` does not exist on PyPI yet. How you create it decides **who owns
+This is already done for `drasi-lib`; it is kept for reference, and for anyone
+setting up a sibling package. How you create a project decides **who owns
 it**, and that is easy to get wrong.
 
 The "pending publisher" form lives under your *account* sidebar

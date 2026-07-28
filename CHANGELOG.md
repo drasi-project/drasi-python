@@ -7,8 +7,11 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
-Nothing has been released to PyPI yet, so the initial public surface remains
-under `Unreleased` until the first `v0.1.0` tag is cut.
+Nothing yet.
+
+## [0.1.0] - 2026-07-28
+
+First release to PyPI.
 
 ### Added
 
@@ -48,3 +51,14 @@ under `Unreleased` until the first `v0.1.0` tag is cut.
   Release wheels are built with the feature but tested without the variable,
   which would have failed the release smoke test on every platform. They now
   ask the build.
+- A query registered before `start()` was started twice, because `drasi-lib`
+  starts an auto-start query as soon as it is added without the `is_running()`
+  guard that adding a source or a reaction applies, and `start()` then started
+  it again. The query reported `Error` while it was in fact running, and when
+  the first start won the race an upstream assertion surfaced as a panic out of
+  `start()`. Such a query is now registered with auto-start suppressed and
+  started once, so both orderings behave the same. Upstream:
+  drasi-project/drasi-core#639.
+- `start()` could return before a query it started had finished transitioning,
+  so an immediate read failed with "Query '...' is not running". It now waits
+  for the query to be running.
