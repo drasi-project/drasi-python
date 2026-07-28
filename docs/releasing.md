@@ -43,29 +43,46 @@ Before changing those pins, read `docs/plugins.md` and run:
 
 ## One-time PyPI trusted publishing setup
 
-`drasi-lib` does not exist on PyPI yet, so this uses the **pending publisher**
-flow: a trusted publisher registered before the project exists. The project is
-created automatically by the first successful upload. The per-project settings
-page cannot be used until the project exists, which is the usual source of
-confusion here.
+`drasi-lib` does not exist on PyPI yet. How you create it decides **who owns
+it**, and that is easy to get wrong.
 
-A PyPI account with permission to claim the name must:
+The "pending publisher" form lives under your *account* sidebar
+(<https://pypi.org/manage/account/publishing/>), so a project created that way
+is owned by **your personal account**, not by an organization — even if you are
+an owner of one. Prefer the organization route below.
 
-1. Sign in to PyPI and open
-   <https://pypi.org/manage/account/publishing/>.
-2. Under **Add a new pending publisher**, choose GitHub and enter exactly:
+### Preferred: create the project in the organization first
+
+1. **Your organizations** → **Manage** on the Drasi organization → **Projects**.
+2. At the bottom of the page, enter `drasi-lib` and click **Create**. This
+   reserves the name under the organization.
+3. Open the new project → **Publishing** → add a Trusted Publisher (a normal
+   one, not a pending one, because the project now exists) with:
 
    | Field | Value |
    | --- | --- |
-   | PyPI Project Name | `drasi-lib` |
    | Owner | `drasi-project` |
    | Repository name | `drasi-python` |
    | Workflow name | `release.yml` |
    | Environment name | *leave blank* |
 
-3. Save it.
+The project is organization-owned from the outset, and no transfer is needed.
 
-The environment field must be blank because the `publish` job in
+### Fallback: pending publisher, then transfer
+
+If the project has already been created from a personal account, an
+organization **Owner** can move it: **Your organizations** → **Manage** →
+**Projects** → select the project at the bottom → **Transfer existing project**.
+Ownership shifts from the individual to the organization. This only works for
+projects already associated with that user's account.
+
+If you go this route, register the pending publisher at
+<https://pypi.org/manage/account/publishing/> with the same four values above
+plus **PyPI Project Name** `drasi-lib`.
+
+### Either way
+
+The environment field must be blank, because the `publish` job in
 `.github/workflows/release.yml` declares no `environment:`. If you add one on
 either side, add it to both — a mismatch fails the OIDC exchange with a
 confusing "not a trusted publisher" error rather than a helpful one.
@@ -74,12 +91,13 @@ Nothing else is needed: no PyPI API token, and no GitHub secret. The workflow
 publishes with OIDC, which is why its `publish` job requests
 `permissions: id-token: write`.
 
-Once the first release is published, the pending publisher becomes a normal
-trusted publisher on the project, manageable from the project's own settings.
+A pending publisher does **not** reserve the name until the first successful
+publish. Creating the project in the organization first does reserve it, which
+is the other reason to prefer that route.
 
-To rehearse without touching the real index, register the same pending
-publisher on <https://test.pypi.org/manage/account/publishing/> and point the
-publish step at TestPyPI with `repository-url`.
+To rehearse without touching the real index, repeat the setup on
+<https://test.pypi.org/> and point the publish step at TestPyPI with
+`repository-url`.
 
 ## Cutting a release
 
