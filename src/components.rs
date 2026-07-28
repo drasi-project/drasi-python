@@ -35,6 +35,7 @@ use drasi_lib::{
 use pyo3::prelude::*;
 use pyo3_async_runtimes::TaskLocals;
 use serde_json::Value;
+use tokio::sync::Mutex as TokioMutex;
 
 use crate::conversions::json_to_py;
 use crate::streams::{StreamItem, StreamSender};
@@ -45,6 +46,17 @@ const PYTHON_COMPONENT_TYPE: &str = "python";
 /// A source that emits the changes pushed into it from Python.
 pub struct PythonSource {
     base: SourceBase,
+    /// Serialises dispatch so concurrent pushes cannot be reordered.
+    ///
+    /// `dispatch_source_change` assigns a monotonic sequence with `fetch_add`
+    /// and only then awaits its way to the subscribers, so two overlapping
+    /// pushes can be delivered in the opposite order to the sequences they
+    /// took. The query side treats sequence order as delivery order -
+    /// `SequenceDedup::should_skip` drops anything at or below the highest
+    /// sequence already seen - so the lower one is silently discarded.
+    /// `asyncio.gather` over `push_change` hit this for real, losing roughly
+    /// one change in twenty at a few percent of runs.
+    dispatch: TokioMutex<()>,
 }
 
 impl PythonSource {
@@ -52,11 +64,13 @@ impl PythonSource {
         let params = SourceBaseParams::new(id).with_auto_start(auto_start);
         Ok(Self {
             base: SourceBase::new(params)?,
+            dispatch: TokioMutex::new(()),
         })
     }
 
     /// Emits a change to every subscribed query.
     pub async fn push(&self, change: SourceChange) -> Result<()> {
+        let _ordered = self.dispatch.lock().await;
         self.base.dispatch_source_change(change).await
     }
 }

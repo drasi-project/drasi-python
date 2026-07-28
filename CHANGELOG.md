@@ -59,6 +59,15 @@ First release to PyPI.
   `start()`. Such a query is now registered with auto-start suppressed and
   started once, so both orderings behave the same. Upstream:
   drasi-project/drasi-core#639.
+- Concurrent `push_change` calls to the same Python source could silently lose
+  changes. `dispatch_source_change` takes its monotonic sequence with a
+  `fetch_add` and then awaits its way to the subscribers, so two overlapping
+  pushes can arrive in the opposite order to the sequences they took, and the
+  query side discards anything at or below the highest sequence it has already
+  seen. Twenty changes pushed through `asyncio.gather` lost one about three
+  times in a hundred runs; sequential pushes never did. Dispatch for a Python
+  source is now serialised, so ordering matches the sequence. Upstream:
+  drasi-project/drasi-core#640.
 - `start()` could return before a query it started had finished transitioning,
   so an immediate read failed with "Query '...' is not running". It now waits
   for the query to be running.
