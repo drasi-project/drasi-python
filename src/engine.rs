@@ -46,7 +46,7 @@ pub struct Inner {
     pub core: DrasiLib,
     /// Python-defined sources, kept so `push_change` can reach them directly.
     pub python_sources: Mutex<HashMap<String, Arc<PythonSource>>>,
-    pub plugins: PluginHost,
+    pub plugins: Arc<PluginHost>,
     /// Directory `install_plugin` writes to when the caller does not pick one.
     default_plugin_dir: Mutex<Option<PathBuf>>,
     /// Distinguishes the reactions created to back result streams.
@@ -132,7 +132,7 @@ impl Drasi {
                     id,
                     core,
                     python_sources: Mutex::new(HashMap::new()),
-                    plugins: PluginHost::new(secrets),
+                    plugins: Arc::new(PluginHost::new(secrets)),
                     default_plugin_dir: Mutex::new(None),
                     stream_counter: AtomicU64::new(0),
                 }),
@@ -204,7 +204,13 @@ impl Drasi {
     // ---------------------------------------------------------------- queries
 
     /// Registers a continuous query over one or more sources.
-    #[pyo3(signature = (id, query, sources, *, language = "cypher", joins = None))]
+    #[pyo3(signature = (
+        id, query, sources, *, language = "cypher", joins = None,
+        auto_start = None, enable_bootstrap = None, bootstrap_timeout_seconds = None,
+        priority_queue_capacity = None, dispatch_buffer_capacity = None,
+        outbox_capacity = None, dispatch_mode = None,
+    ))]
+    #[allow(clippy::too_many_arguments)]
     fn add_query<'py>(
         &self,
         py: Python<'py>,
@@ -213,8 +219,30 @@ impl Drasi {
         sources: Vec<String>,
         language: &str,
         joins: Option<&Bound<'py, PyAny>>,
+        auto_start: Option<bool>,
+        enable_bootstrap: Option<bool>,
+        bootstrap_timeout_seconds: Option<u64>,
+        priority_queue_capacity: Option<usize>,
+        dispatch_buffer_capacity: Option<usize>,
+        outbox_capacity: Option<usize>,
+        dispatch_mode: Option<String>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let config = build_query(&id, &query, &sources, language, joins)?;
+        let config = build_query(
+            &id,
+            &query,
+            &sources,
+            language,
+            joins,
+            QueryTuning {
+                auto_start,
+                enable_bootstrap,
+                bootstrap_timeout_seconds,
+                priority_queue_capacity,
+                dispatch_buffer_capacity,
+                outbox_capacity,
+                dispatch_mode,
+            },
+        )?;
         let inner = self.inner();
         future_into_py(py, async move {
             inner.core.add_query(config).await.map_err(engine_error)
@@ -222,7 +250,13 @@ impl Drasi {
     }
 
     /// Replaces the definition of an existing query.
-    #[pyo3(signature = (id, query, sources, *, language = "cypher", joins = None))]
+    #[pyo3(signature = (
+        id, query, sources, *, language = "cypher", joins = None,
+        auto_start = None, enable_bootstrap = None, bootstrap_timeout_seconds = None,
+        priority_queue_capacity = None, dispatch_buffer_capacity = None,
+        outbox_capacity = None, dispatch_mode = None,
+    ))]
+    #[allow(clippy::too_many_arguments)]
     fn update_query<'py>(
         &self,
         py: Python<'py>,
@@ -231,8 +265,30 @@ impl Drasi {
         sources: Vec<String>,
         language: &str,
         joins: Option<&Bound<'py, PyAny>>,
+        auto_start: Option<bool>,
+        enable_bootstrap: Option<bool>,
+        bootstrap_timeout_seconds: Option<u64>,
+        priority_queue_capacity: Option<usize>,
+        dispatch_buffer_capacity: Option<usize>,
+        outbox_capacity: Option<usize>,
+        dispatch_mode: Option<String>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let config = build_query(&id, &query, &sources, language, joins)?;
+        let config = build_query(
+            &id,
+            &query,
+            &sources,
+            language,
+            joins,
+            QueryTuning {
+                auto_start,
+                enable_bootstrap,
+                bootstrap_timeout_seconds,
+                priority_queue_capacity,
+                dispatch_buffer_capacity,
+                outbox_capacity,
+                dispatch_mode,
+            },
+        )?;
         let inner = self.inner();
         future_into_py(py, async move {
             inner
@@ -817,6 +873,32 @@ impl Drasi {
         })
     }
 
+    /// Watches a directory and loads plugins as they appear.
+    ///
+    /// Returns once watching has started. A loaded cdylib cannot be safely
+    /// unloaded, so removing a file leaves its kinds registered.
+    #[pyo3(signature = (directory, *, debounce_seconds = 1.0))]
+    fn watch_plugins<'py>(
+        &self,
+        py: Python<'py>,
+        directory: PathBuf,
+        debounce_seconds: f64,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let plugins = Arc::clone(&inner.plugins);
+            plugins
+                .watch(
+                    inner.core.clone(),
+                    inner.id.clone(),
+                    directory,
+                    Duration::from_secs_f64(debounce_seconds.max(0.0)),
+                )
+                .await
+                .map_err(plugin_error)
+        })
+    }
+
     /// The plugin kinds currently registered, grouped by component type.
     fn plugin_kinds<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner();
@@ -965,6 +1047,11 @@ impl Drasi {
                 ));
             }
 
+            inner
+                .plugins
+                .record_install(&resolved, &download.path)
+                .await;
+
             if load {
                 inner
                     .plugins
@@ -980,6 +1067,139 @@ impl Drasi {
                 result.set_item("loaded", load)?;
                 Ok(result.unbind())
             })
+        })
+    }
+
+    /// Downloads an exact plugin reference, without resolving a compatible one.
+    ///
+    /// Use `install_plugin` unless you specifically want to pin an artifact;
+    /// this does no compatibility checking before downloading, so a reference
+    /// for another platform will download and then fail to load.
+    #[pyo3(signature = (reference, directory, filename, *, verify = false, require_signed = false, trusted_identities = None))]
+    #[allow(clippy::too_many_arguments)]
+    fn pull_plugin<'py>(
+        &self,
+        py: Python<'py>,
+        reference: String,
+        directory: PathBuf,
+        filename: String,
+        verify: bool,
+        require_signed: bool,
+        trusted_identities: Option<Vec<(String, String)>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        future_into_py(py, async move {
+            let client = plugins::registry_client(
+                trusted_identities.unwrap_or_default(),
+                verify || require_signed,
+            );
+            tokio::fs::create_dir_all(&directory)
+                .await
+                .map_err(plugin_error)?;
+            let download = client
+                .download_plugin(&reference, &directory, &filename)
+                .await
+                .map_err(plugin_error)?;
+
+            let status = plugins::signature_status(&download.verification);
+            if require_signed && status != "verified" {
+                return Err(error(
+                    DrasiErrorCode::PluginSignatureInvalid,
+                    format!("'{reference}' could not be verified (signature status: {status})"),
+                ));
+            }
+
+            Python::attach(|py| {
+                let result = PyDict::new(py);
+                result.set_item("reference", &reference)?;
+                result.set_item("path", download.path.to_string_lossy().as_ref())?;
+                result.set_item("verification", status)?;
+                Ok(result.unbind())
+            })
+        })
+    }
+
+    /// Writes a `plugins.lock` pinning every plugin installed in this session.
+    fn write_lockfile<'py>(
+        &self,
+        py: Python<'py>,
+        directory: PathBuf,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            inner
+                .plugins
+                .write_lockfile(&directory)
+                .await
+                .map_err(plugin_error)
+        })
+    }
+
+    /// Reads a `plugins.lock` and returns what it pins.
+    #[staticmethod]
+    fn read_lockfile(py: Python<'_>, directory: PathBuf) -> PyResult<Bound<'_, PyAny>> {
+        let entries = PluginHost::read_lockfile(&directory).map_err(plugin_error)?;
+        let list = PyList::empty(py);
+        for entry in entries {
+            let item = PyDict::new(py);
+            item.set_item("reference", &entry.reference)?;
+            item.set_item("version", &entry.version)?;
+            item.set_item("digest", &entry.digest)?;
+            item.set_item("filename", &entry.filename)?;
+            item.set_item("platform", &entry.platform)?;
+            item.set_item("file_hash", entry.file_hash.clone())?;
+            item.set_item("sdk_version", &entry.sdk_version)?;
+            item.set_item("core_version", &entry.core_version)?;
+            item.set_item("lib_version", &entry.lib_version)?;
+            list.append(item)?;
+        }
+        Ok(list.into_any())
+    }
+
+    /// Installs exactly what a `plugins.lock` pins.
+    ///
+    /// Each entry names a digest, so this reinstalls the same artifacts rather
+    /// than resolving newer ones.
+    #[pyo3(signature = (directory, *, load = true))]
+    fn install_from_lockfile<'py>(
+        &self,
+        py: Python<'py>,
+        directory: PathBuf,
+        load: bool,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let entries = PluginHost::read_lockfile(&directory).map_err(plugin_error)?;
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let client = plugins::registry_client(Vec::new(), false);
+            let mut installed = Vec::new();
+            for entry in entries {
+                let download = client
+                    .download_plugin(&entry.reference, &directory, &entry.filename)
+                    .await
+                    .map_err(plugin_error)?;
+
+                if let Some(expected) = &entry.file_hash {
+                    let actual = plugins::file_hash(&download.path).map_err(plugin_error)?;
+                    if !actual.eq_ignore_ascii_case(expected) {
+                        return Err(error(
+                            DrasiErrorCode::PluginSignatureInvalid,
+                            format!(
+                                "'{}' does not match the hash recorded in plugins.lock",
+                                entry.reference
+                            ),
+                        ));
+                    }
+                }
+
+                if load {
+                    inner
+                        .plugins
+                        .load_file(&inner.core, &inner.id, &download.path)
+                        .await
+                        .map_err(incompatible_plugin)?;
+                }
+                installed.push(entry.reference);
+            }
+            Ok(installed)
         })
     }
 
@@ -1386,6 +1606,18 @@ impl Drasi {
     }
 }
 
+/// Tuning knobs accepted alongside a query definition.
+#[derive(Default)]
+pub struct QueryTuning {
+    pub auto_start: Option<bool>,
+    pub enable_bootstrap: Option<bool>,
+    pub bootstrap_timeout_seconds: Option<u64>,
+    pub priority_queue_capacity: Option<usize>,
+    pub dispatch_buffer_capacity: Option<usize>,
+    pub outbox_capacity: Option<usize>,
+    pub dispatch_mode: Option<String>,
+}
+
 /// Builds a query configuration, validating the language up front.
 fn build_query(
     id: &str,
@@ -1393,6 +1625,7 @@ fn build_query(
     sources: &[String],
     language: &str,
     joins: Option<&Bound<'_, PyAny>>,
+    tuning: QueryTuning,
 ) -> PyResult<drasi_lib::config::QueryConfig> {
     let mut builder = match language.trim().to_ascii_lowercase().as_str() {
         "cypher" => Query::cypher(id),
@@ -1412,7 +1645,39 @@ fn build_query(
     if let Some(joins) = joins {
         builder = builder.with_joins(parse_joins(joins)?);
     }
+    if let Some(auto_start) = tuning.auto_start {
+        builder = builder.auto_start(auto_start);
+    }
+    if let Some(enable) = tuning.enable_bootstrap {
+        builder = builder.enable_bootstrap(enable);
+    }
+    if let Some(seconds) = tuning.bootstrap_timeout_seconds {
+        builder = builder.with_bootstrap_timeout_secs(seconds);
+    }
+    if let Some(capacity) = tuning.priority_queue_capacity {
+        builder = builder.with_priority_queue_capacity(capacity);
+    }
+    if let Some(capacity) = tuning.dispatch_buffer_capacity {
+        builder = builder.with_dispatch_buffer_capacity(capacity);
+    }
+    if let Some(capacity) = tuning.outbox_capacity {
+        builder = builder.with_outbox_capacity(capacity);
+    }
+    if let Some(mode) = tuning.dispatch_mode {
+        builder = builder.with_dispatch_mode(parse_dispatch_mode(&mode)?);
+    }
     Ok(builder.build())
+}
+
+fn parse_dispatch_mode(mode: &str) -> PyResult<drasi_lib::DispatchMode> {
+    match mode.trim().to_ascii_lowercase().as_str() {
+        "channel" => Ok(drasi_lib::DispatchMode::Channel),
+        "broadcast" => Ok(drasi_lib::DispatchMode::Broadcast),
+        other => Err(error(
+            DrasiErrorCode::ConfigInvalid,
+            format!("unknown dispatch mode '{other}', expected 'channel' or 'broadcast'"),
+        )),
+    }
 }
 
 /// Parses `[{"id": ..., "keys": [{"label": ..., "property": ...}]}]`.

@@ -22,10 +22,12 @@ use std::collections::HashMap;
 use std::ffi::c_void;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use drasi_host_sdk::callbacks::{instance_lifecycle_callback_fn, instance_log_callback_fn};
-use drasi_host_sdk::lockfile::compute_file_hash;
+use drasi_host_sdk::lockfile::{compute_file_hash, LockedPlugin, PluginLockfile};
+use drasi_host_sdk::plugin_types::PluginFileEvent;
 use drasi_host_sdk::registry::cosign::{
     CosignVerifier, SignatureStatus, TrustedIdentity, VerificationConfig,
 };
@@ -33,6 +35,7 @@ use drasi_host_sdk::registry::oci::OciRegistryClient;
 use drasi_host_sdk::registry::platform::target_triple_to_arch_suffix;
 use drasi_host_sdk::registry::resolver::PluginResolver;
 use drasi_host_sdk::registry::types::{HostVersionInfo, RegistryConfig};
+use drasi_host_sdk::watcher::{PluginWatcher, PluginWatcherConfig};
 use drasi_host_sdk::{
     InstanceCallbackContext, LoadedPlugin, PluginLoader, PluginLoaderConfig, PluginRegistry,
     DEFAULT_PLUGIN_FILE_PATTERNS,
@@ -102,6 +105,8 @@ pub struct PluginHost {
     /// Raw pointers handed to plugins, retained so they stay valid for as long
     /// as a loaded plugin might invoke them.
     callback_ptrs: std::sync::Mutex<Vec<CallbackPtr>>,
+    /// What has been installed, so a lockfile can record it.
+    installed: Mutex<Vec<LockedPlugin>>,
 }
 
 impl PluginHost {
@@ -113,6 +118,7 @@ impl PluginHost {
             loaded: Mutex::new(Vec::new()),
             callbacks: Mutex::new(None),
             callback_ptrs: std::sync::Mutex::new(Vec::new()),
+            installed: Mutex::new(Vec::new()),
         }
     }
 
@@ -338,6 +344,104 @@ impl PluginHost {
     }
 }
 
+impl PluginHost {
+    /// Records an installed plugin so `write_lockfile` can pin it later.
+    pub async fn record_install(&self, resolved: &Resolved, path: &Path) {
+        let digest = resolved
+            .reference
+            .split_once('@')
+            .map(|(_, digest)| digest.to_string())
+            .unwrap_or_default();
+        let entry = LockedPlugin {
+            reference: resolved.reference.clone(),
+            version: resolved.version.clone(),
+            digest,
+            sdk_version: resolved.sdk_version.clone(),
+            core_version: resolved.core_version.clone(),
+            lib_version: resolved.lib_version.clone(),
+            platform: resolved.target_triple.clone(),
+            filename: path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            file_hash: compute_file_hash(path).ok(),
+            git_commit: None,
+            build_timestamp: None,
+            signature: None,
+        };
+        self.installed.lock().await.push(entry);
+    }
+
+    /// Writes a lockfile pinning everything installed in this session.
+    pub async fn write_lockfile(&self, dir: &Path) -> Result<usize> {
+        let installed = self.installed.lock().await;
+        if installed.is_empty() {
+            return Err(anyhow!(
+                "nothing has been installed in this session, so there is nothing to pin"
+            ));
+        }
+        let mut lockfile = PluginLockfile::new();
+        for entry in installed.iter() {
+            lockfile.insert(entry.reference.clone(), entry.clone());
+        }
+        lockfile.write(dir)?;
+        Ok(installed.len())
+    }
+
+    /// Reads a lockfile, returning the pinned references.
+    pub fn read_lockfile(dir: &Path) -> Result<Vec<LockedPlugin>> {
+        let lockfile = PluginLockfile::read(dir)?
+            .ok_or_else(|| anyhow!("no plugins.lock found in {}", dir.display()))?;
+        Ok(lockfile.iter().map(|(_, entry)| entry.clone()).collect())
+    }
+
+    /// Watches `dir` and loads plugins as they appear.
+    ///
+    /// Returns once watching has started; loading continues in the background.
+    /// A file that fails to load is logged and skipped, since a half-written
+    /// file being copied in is a normal transient state.
+    pub async fn watch(
+        self: &Arc<Self>,
+        core: DrasiLib,
+        instance_id: String,
+        dir: PathBuf,
+        debounce: Duration,
+    ) -> Result<()> {
+        let mut watcher = PluginWatcher::new(PluginWatcherConfig {
+            plugins_dir: dir.clone(),
+            debounce,
+        });
+        let mut events = watcher.subscribe();
+        watcher.start()?;
+
+        let host = Arc::clone(self);
+        tokio::spawn(async move {
+            // Keep the watcher alive for as long as we are listening; dropping
+            // it stops the underlying filesystem notifier.
+            let _watcher = watcher;
+            loop {
+                match events.recv().await {
+                    Ok(PluginFileEvent::Added(path)) | Ok(PluginFileEvent::Changed(path)) => {
+                        if let Err(err) = host.load_file(&core, &instance_id, &path).await {
+                            log::warn!("watched plugin {} was not loaded: {err:#}", path.display());
+                        }
+                    }
+                    // A loaded cdylib cannot be unloaded safely, so a removal
+                    // leaves the already-registered kinds in place.
+                    Ok(PluginFileEvent::Removed(path)) => {
+                        log::info!("watched plugin {} was removed", path.display());
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(count)) => {
+                        log::warn!("missed {count} plugin file event(s)");
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+                }
+            }
+        });
+        Ok(())
+    }
+}
+
 /// Returns the plugin files in `dir` whose SHA-256 matches the expected map.
 fn verified_candidates(dir: &Path, expected: &HashMap<String, String>) -> Result<Vec<PathBuf>> {
     let mut accepted = Vec::new();
@@ -460,4 +564,9 @@ pub fn describe_host() -> Value {
         "core_version": DRASI_CORE_VERSION,
         "lib_version": DRASI_LIB_VERSION,
     })
+}
+
+/// The SHA-256 of a file on disk.
+pub fn file_hash(path: &Path) -> Result<String> {
+    compute_file_hash(path)
 }

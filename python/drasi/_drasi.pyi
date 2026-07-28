@@ -207,6 +207,22 @@ class GraphSchema(TypedDict):
     relations: dict[str, Any]
     sources_without_schema: list[str]
 
+class PulledPlugin(TypedDict):
+    reference: str
+    path: str
+    verification: Literal["verified", "unsigned", "tampered"]
+
+class LockedPlugin(TypedDict):
+    reference: str
+    version: str
+    digest: str
+    filename: str
+    platform: str
+    file_hash: str | None
+    sdk_version: str
+    core_version: str
+    lib_version: str
+
 class ConfigSchema(TypedDict):
     name: str
     schema: dict[str, Any]
@@ -267,6 +283,13 @@ class Drasi:
         *,
         language: QueryLanguage = "cypher",
         joins: Sequence[Join] | None = None,
+        auto_start: bool | None = None,
+        enable_bootstrap: bool | None = None,
+        bootstrap_timeout_seconds: int | None = None,
+        priority_queue_capacity: int | None = None,
+        dispatch_buffer_capacity: int | None = None,
+        outbox_capacity: int | None = None,
+        dispatch_mode: Literal["channel", "broadcast"] | None = None,
     ) -> Awaitable[None]: ...
     def update_query(
         self,
@@ -276,6 +299,13 @@ class Drasi:
         *,
         language: QueryLanguage = "cypher",
         joins: Sequence[Join] | None = None,
+        auto_start: bool | None = None,
+        enable_bootstrap: bool | None = None,
+        bootstrap_timeout_seconds: int | None = None,
+        priority_queue_capacity: int | None = None,
+        dispatch_buffer_capacity: int | None = None,
+        outbox_capacity: int | None = None,
+        dispatch_mode: Literal["channel", "broadcast"] | None = None,
     ) -> Awaitable[None]: ...
     def remove_query(self, id: str) -> Awaitable[None]: ...
     def start_query(self, id: str) -> Awaitable[None]: ...
@@ -401,6 +431,25 @@ class Drasi:
         trusted_identities: Sequence[tuple[str, str]] | None = None,
         load: bool = True,
     ) -> Awaitable[InstalledPlugin]: ...
+    def watch_plugins(
+        self, directory: str, *, debounce_seconds: float = 1.0
+    ) -> Awaitable[None]: ...
+    def pull_plugin(
+        self,
+        reference: str,
+        directory: str,
+        filename: str,
+        *,
+        verify: bool = False,
+        require_signed: bool = False,
+        trusted_identities: Sequence[tuple[str, str]] | None = None,
+    ) -> Awaitable[PulledPlugin]: ...
+    def write_lockfile(self, directory: str) -> Awaitable[int]: ...
+    @staticmethod
+    def read_lockfile(directory: str) -> list[LockedPlugin]: ...
+    def install_from_lockfile(
+        self, directory: str, *, load: bool = True
+    ) -> Awaitable[list[str]]: ...
     def source_config_schema(self, kind: str) -> Awaitable[ConfigSchema]: ...
     def reaction_config_schema(self, kind: str) -> Awaitable[ConfigSchema]: ...
     def bootstrap_config_schema(self, kind: str) -> Awaitable[ConfigSchema]: ...
