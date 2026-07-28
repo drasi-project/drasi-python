@@ -26,13 +26,14 @@ from typing import Any
 import pytest
 
 from drasi import Drasi, DrasiError, Stream
+from drasi.types import ComponentEvent, QueryResultEvent, SourceChange
 
 from .helpers import wait_for, wait_for_query_running
 
 OPEN_ORDERS = "MATCH (o:Order) WHERE o.status = 'open' RETURN o.id AS id"
 
 
-def order(order_id: str, status: str = "open") -> dict[str, Any]:
+def order(order_id: str, status: str = "open") -> SourceChange:
     return {
         "op": "insert",
         "id": order_id,
@@ -52,8 +53,8 @@ async def running_engine(engine: Drasi) -> Drasi:
 async def take(stream: Stream, count: int, *, timeout: float = 10.0) -> list[dict[str, Any]]:
     """Reads `count` items, failing rather than hanging if they never arrive."""
 
-    async def collect() -> list[dict[str, Any]]:
-        items = []
+    async def collect() -> list[Any]:
+        items: list[Any] = []
         async for item in stream:
             items.append(item)
             if len(items) >= count:
@@ -105,7 +106,7 @@ async def test_two_result_streams_are_independent(engine: Drasi) -> None:
 
 async def test_result_callback_receives_the_same_events(engine: Drasi) -> None:
     drasi = await running_engine(engine)
-    seen: list[dict[str, Any]] = []
+    seen: list[QueryResultEvent] = []
     await drasi.on_query_results("open", seen.append)
 
     await drasi.push_change("orders", order("o1"))
@@ -149,7 +150,7 @@ async def test_all_events_covers_every_component(engine: Drasi) -> None:
 
 async def test_event_callbacks_fire(engine: Drasi) -> None:
     drasi = await running_engine(engine)
-    seen: list[dict[str, Any]] = []
+    seen: list[ComponentEvent] = []
     await drasi.on_query_events("open", seen.append)
 
     await wait_for(lambda: len(seen) >= 1, description="an event callback")
@@ -158,9 +159,9 @@ async def test_event_callbacks_fire(engine: Drasi) -> None:
 
 async def test_all_source_and_reaction_event_callbacks_fire(engine: Drasi) -> None:
     drasi = await running_engine(engine)
-    all_seen: list[dict[str, Any]] = []
-    source_seen: list[dict[str, Any]] = []
-    reaction_seen: list[dict[str, Any]] = []
+    all_seen: list[ComponentEvent] = []
+    source_seen: list[ComponentEvent] = []
+    reaction_seen: list[ComponentEvent] = []
 
     await drasi.on_all_events(all_seen.append)
     await drasi.on_source_events("orders", source_seen.append)

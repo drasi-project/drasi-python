@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import AsyncIterator, Awaitable, Callable
-from typing import Any
+from typing import Any, TypeAlias
 
 import pytest
 
@@ -33,15 +33,21 @@ from drasi import Drasi
 @pytest.fixture
 async def engine(request: pytest.FixtureRequest) -> AsyncIterator[Drasi]:
     """A fresh, stopped engine named after the test using it."""
-    instance = await Drasi.create(f"test-{request.node.name}"[:96])
+    # pytest types `node` loosely, so its name arrives as Unknown.
+    name: str = request.node.name  # pyright: ignore
+    instance = await Drasi.create(f"test-{name}"[:96])
     try:
         yield instance
     finally:
         await instance.close()
 
 
+# Named so tests can annotate the fixture parameter without repeating it.
+EngineFactory: TypeAlias = Callable[..., Awaitable[Drasi]]
+
+
 @pytest.fixture
-def engine_factory() -> Callable[..., Awaitable[Drasi]]:
+def engine_factory() -> EngineFactory:
     """Creates an engine with options, for tests that need stores or secrets.
 
     Unlike the `engine` fixture this does not close for you, so use it with

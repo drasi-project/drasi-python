@@ -23,6 +23,7 @@ from typing import Any
 import pytest
 
 from drasi import ConfigError, Drasi, DrasiError, UnknownKindError
+from drasi.types import QueryResultEvent, SourceChange
 
 from .helpers import wait_for, wait_for_at_least_rows, wait_for_query_running
 
@@ -30,7 +31,7 @@ ORDERS_QUERY = "MATCH (o:Order) RETURN o.id AS id"
 COUNTER_QUERY = "MATCH (c:Counter) RETURN c.value AS value"
 
 
-def order(order_id: str) -> dict[str, Any]:
+def order(order_id: str) -> SourceChange:
     return {
         "op": "insert",
         "id": order_id,
@@ -63,7 +64,7 @@ async def durable_engine(tmp_path: Path, name: str = "durable") -> Drasi:
 async def test_a_durable_reaction_needs_a_state_store(engine: Drasi) -> None:
     """Without somewhere to keep a checkpoint, durability means nothing."""
     with pytest.raises(ConfigError) as caught:
-        await engine.add_durable_python_reaction("r", ["q"], lambda _: None)
+        await engine.add_durable_python_reaction("r", ["q"], lambda _: None)  # pyright: ignore[reportArgumentType]  # invalid on purpose
     assert caught.value.code == "DURABLE_REQUIRES_STATE_STORE"
 
 
@@ -72,7 +73,7 @@ async def test_a_durable_reaction_awaits_its_callback(tmp_path: Path) -> None:
     try:
         seen: list[str] = []
 
-        async def handler(event: dict[str, Any]) -> None:
+        async def handler(event: QueryResultEvent) -> None:
             # Genuinely yields, so a caller that failed to await would show up.
             await asyncio.sleep(0.01)
             seen.extend(diff["data"]["id"] for diff in event["results"])
@@ -92,7 +93,7 @@ async def test_the_checkpoint_advances_once_the_callback_succeeds(tmp_path: Path
     try:
         handled = asyncio.Event()
 
-        async def handler(_: dict[str, Any]) -> None:
+        async def handler(_: QueryResultEvent) -> None:
             handled.set()
 
         await drasi.add_durable_python_reaction("r", ["q"], handler)
@@ -125,7 +126,7 @@ async def test_a_failing_callback_keeps_being_retried(tmp_path: Path) -> None:
     try:
         attempts: list[int] = []
 
-        async def handler(event: dict[str, Any]) -> None:
+        async def handler(event: QueryResultEvent) -> None:
             attempts.append(event["sequence"])
             raise RuntimeError("nope")
 
@@ -147,14 +148,14 @@ async def test_a_synchronous_callback_is_rejected_at_registration(
     drasi = await durable_engine(tmp_path, "durable-sync")
     try:
         with pytest.raises(ConfigError) as caught:
-            await drasi.add_durable_python_reaction("r", ["q"], lambda _: None)
+            await drasi.add_durable_python_reaction("r", ["q"], lambda _: None)  # pyright: ignore[reportArgumentType]  # invalid on purpose
         assert "async" in str(caught.value)
 
-        def plain(_: dict[str, Any]) -> None:
+        def plain(_: QueryResultEvent) -> None:
             return None
 
         with pytest.raises(ConfigError):
-            await drasi.add_durable_python_reaction("r2", ["q"], plain)
+            await drasi.add_durable_python_reaction("r2", ["q"], plain)  # pyright: ignore[reportArgumentType]  # invalid on purpose
     finally:
         await drasi.close()
 
@@ -182,7 +183,7 @@ async def test_recovery_policies_are_validated(tmp_path: Path) -> None:
     drasi = await durable_engine(tmp_path, "durable-policy")
     try:
 
-        async def handler(_: dict[str, Any]) -> None:
+        async def handler(_: QueryResultEvent) -> None:
             return None
 
         for policy in ("strict", "auto_reset", "skip_gap"):
@@ -191,7 +192,7 @@ async def test_recovery_policies_are_validated(tmp_path: Path) -> None:
             )
 
         with pytest.raises(DrasiError) as caught:
-            await drasi.add_durable_python_reaction("bad", ["q"], handler, recovery_policy="hope")
+            await drasi.add_durable_python_reaction("bad", ["q"], handler, recovery_policy="hope")  # pyright: ignore[reportArgumentType]  # invalid on purpose
         assert caught.value.code == "CONFIG_INVALID"
     finally:
         await drasi.close()
@@ -201,7 +202,7 @@ async def test_a_durable_callback_must_be_callable(tmp_path: Path) -> None:
     drasi = await durable_engine(tmp_path, "durable-callable")
     try:
         with pytest.raises(DrasiError) as caught:
-            await drasi.add_durable_python_reaction("r", ["q"], "not callable")
+            await drasi.add_durable_python_reaction("r", ["q"], "not callable")  # pyright: ignore[reportArgumentType]  # invalid on purpose
         assert caught.value.code == "CONFIG_INVALID"
     finally:
         await drasi.close()
@@ -264,7 +265,7 @@ async def test_from_config_accepts_the_same_store_options(tmp_path: Path) -> Non
     )
     try:
         # A durable reaction proves the state store was actually applied.
-        async def handler(_: dict[str, Any]) -> None:
+        async def handler(_: QueryResultEvent) -> None:
             return None
 
         await drasi.add_python_source("s")
@@ -276,12 +277,12 @@ async def test_from_config_accepts_the_same_store_options(tmp_path: Path) -> Non
 
 async def test_from_config_rejects_a_non_mapping() -> None:
     with pytest.raises(ConfigError):
-        await Drasi.from_config(["not", "a", "mapping"])
+        await Drasi.from_config(["not", "a", "mapping"])  # pyright: ignore[reportArgumentType]  # invalid on purpose
 
 
 @pytest.mark.parametrize(
     ("config", "detail"),
-    [
+    [  # pyright: ignore[reportUnknownArgumentType]  # empty lists infer as list[Unknown]
         ({"queries": [{"query": "MATCH (n) RETURN n", "sources": []}]}, "id"),
         ({"queries": [{"id": "q", "sources": []}]}, "query"),
         ({"queries": [{"id": "q", "query": "MATCH (n) RETURN n"}]}, "sources"),

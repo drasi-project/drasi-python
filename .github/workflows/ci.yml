@@ -54,7 +54,8 @@ jobs:
       - name: Set up Python tooling
         run: |
           uv venv --python 3.12 .venv
-          uv pip install --python .venv/bin/python maturin pytest pytest-asyncio pytest-timeout ruff
+          uv pip install --python .venv/bin/python maturin pytest pytest-asyncio pytest-timeout \
+            ruff pyright "testcontainers>=4.15" "psycopg[binary]"
 
       - name: Rust formatting
         run: cargo fmt --check
@@ -69,6 +70,13 @@ jobs:
 
       - name: Python formatting
         run: .venv/bin/ruff format --check .
+
+      # This went unrun for long enough to accumulate 1653 errors from a single
+      # misconfiguration, which is exactly the kind of rot a gate is meant to
+      # prevent. pyright resolves `drasi` from the source tree, so the
+      # extension does not need building first.
+      - name: Python type checking
+        run: .venv/bin/pyright
 
   registry-pins:
     name: Registry pin drift

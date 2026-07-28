@@ -19,7 +19,7 @@ from __future__ import annotations
 import importlib.util
 import shutil
 import sys
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -34,7 +34,7 @@ _spec.loader.exec_module(version_module)
 
 
 @contextmanager
-def project_tree(name: str) -> Iterator[Path]:
+def project_tree(name: str) -> Generator[Path]:
     root = ROOT / ".pytest-version-sync" / name
     if root.exists():
         shutil.rmtree(root)

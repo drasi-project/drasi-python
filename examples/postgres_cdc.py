@@ -35,6 +35,7 @@ import asyncio  # noqa: E402
 from _throwaway_postgres import throwaway_postgres  # noqa: E402
 
 from drasi import Drasi  # noqa: E402
+from drasi.types import QueryResultEvent  # noqa: E402
 
 # Two things here are Drasi's business rather than ordinary schema design.
 # The source replicates only tables belonging to a publication: without one it
@@ -57,7 +58,7 @@ RETURN o.id AS id, o.customer AS customer
 """
 
 
-def on_change(event: dict) -> None:
+def on_change(event: QueryResultEvent) -> None:
     """Prints each way the result set changed."""
     for diff in event["results"]:
         if diff["type"] == "ADD":

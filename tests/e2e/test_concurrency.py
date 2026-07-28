@@ -20,13 +20,14 @@ import asyncio
 from typing import Any
 
 from drasi import Drasi, Stream
+from drasi.types import QueryResultEvent, SourceChange
 
 from .helpers import wait_for, wait_for_query_running, wait_for_rows
 
 OPEN_ORDERS = "MATCH (o:Order) WHERE o.status = 'open' RETURN o.id AS id, o.total AS total"
 
 
-def order(order_id: str, *, status: str = "open", total: int = 0) -> dict[str, Any]:
+def order(order_id: str, *, status: str = "open", total: int = 0) -> SourceChange:
     return {
         "op": "insert",
         "id": order_id,
@@ -36,8 +37,8 @@ def order(order_id: str, *, status: str = "open", total: int = 0) -> dict[str, A
 
 
 async def take(stream: Stream, count: int, *, timeout: float = 10.0) -> list[dict[str, Any]]:
-    async def collect() -> list[dict[str, Any]]:
-        items = []
+    async def collect() -> list[Any]:
+        items: list[Any] = []
         async for item in stream:
             items.append(item)
             if len(items) >= count:
@@ -127,7 +128,7 @@ async def test_a_slow_durable_reaction_does_not_block_query_updates(
         release = asyncio.Event()
         seen: list[str] = []
 
-        async def handler(event: dict[str, Any]) -> None:
+        async def handler(event: QueryResultEvent) -> None:
             started.set()
             await release.wait()
             seen.extend(diff["data"]["id"] for diff in event["results"])

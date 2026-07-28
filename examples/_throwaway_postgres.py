@@ -21,7 +21,7 @@ details to `add_source`.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
@@ -51,7 +51,7 @@ class Postgres:
 
 
 @contextmanager
-def throwaway_postgres(schema: str) -> Iterator[Postgres]:
+def throwaway_postgres(schema: str) -> Generator[Postgres]:
     """Starts Postgres in a container, applies `schema`, and cleans up on exit."""
     try:
         import psycopg
@@ -74,7 +74,7 @@ def throwaway_postgres(schema: str) -> Iterator[Postgres]:
 
         def sql(statement: str) -> None:
             with psycopg.connect(dsn, autocommit=True) as connection:
-                connection.execute(statement)
+                connection.execute(statement)  # pyright: ignore[reportArgumentType, reportCallIssue]  # psycopg stubs
 
         sql(schema)
 

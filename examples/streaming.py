@@ -32,6 +32,7 @@ os.environ.setdefault("RUST_LOG", "warn")
 import asyncio  # noqa: E402
 
 from drasi import Drasi  # noqa: E402
+from drasi.types import SourceChange
 
 OPEN_ORDERS = """
 MATCH (o:Order)
@@ -40,7 +41,7 @@ RETURN o.id AS id, o.total AS total
 """
 
 
-def order(order_id: str, status: str, total: int) -> dict:
+def order(order_id: str, status: str, total: int) -> SourceChange:
     return {
         "op": "insert" if status == "open" else "update",
         "id": order_id,

@@ -14,9 +14,39 @@
 
 """Type stubs for the native extension module."""
 
+import os
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from types import TracebackType
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, TypeAlias
+
+from .types import (
+    ComponentEvent,
+    ConfigSchema,
+    GraphSchema,
+    HostInfo,
+    Identity,
+    IndexStore,
+    InstalledPlugin,
+    Join,
+    LifecycleMetrics,
+    LoadSummary,
+    LockedPlugin,
+    LogMessage,
+    PluginKinds,
+    PluginSearchResult,
+    PulledPlugin,
+    QueryMetrics,
+    QueryResultEvent,
+    ReactionQueryMetrics,
+    ResolvedPlugin,
+    SourceChange,
+    SourceSchema,
+    StateStore,
+)
+
+# Directory arguments reach Rust as a PathBuf, which accepts anything
+# os.fspath understands, so `Path` is as valid as `str`.
+StrPath: TypeAlias = str | os.PathLike[str]
 
 __version__: str
 DRASI_CORE_VERSION: str
@@ -26,87 +56,6 @@ ERROR_CODES: list[str]
 
 QueryLanguage = Literal["cypher", "gql"]
 DiffType = Literal["ADD", "UPDATE", "DELETE", "aggregation", "noop"]
-
-class StateStore(TypedDict):
-    kind: Literal["redb"]
-    path: str
-
-class IndexStore(TypedDict, total=False):
-    kind: Literal["rocksdb"]
-    path: str
-    enable_archive: bool
-    direct_io: bool
-
-class Identity(TypedDict, total=False):
-    kind: Literal["password", "token"]
-    username: str
-    password: str
-    token: str
-
-class HostInfo(TypedDict):
-    """The versions and platform a plugin must match to be loadable."""
-
-    target_triple: str
-    arch_suffix: str | None
-    ffi_sdk_version: str
-    sdk_version: str
-    core_version: str
-    lib_version: str
-    index_backends: list[str]
-
-class JoinKey(TypedDict):
-    label: str
-    property: str
-
-class Join(TypedDict):
-    id: str
-    keys: Sequence[JoinKey]
-
-class SourceChange(TypedDict, total=False):
-    """A change pushed into a Python-defined source.
-
-    `op` accepts `add` as a synonym for `insert` and `remove` for `delete`.
-    Supplying both `start_id` and `end_id` makes the change a relation rather
-    than a node; the Node.js spellings `startId`/`endId` and `inId`/`outId` are
-    also accepted.
-    """
-
-    op: str
-    id: str
-    labels: Sequence[str]
-    properties: Mapping[str, Any]
-    start_id: str
-    end_id: str
-    effective_from: int
-
-class ResultDiff(TypedDict, total=False):
-    type: DiffType
-    data: Any
-    before: Any
-    after: Any
-    row_signature: int
-
-class QueryResultEvent(TypedDict):
-    query_id: str
-    sequence: int
-    timestamp: str
-    results: list[ResultDiff]
-    metadata: dict[str, Any]
-
-class ComponentEvent(TypedDict, total=False):
-    component_id: str
-    component_type: str
-    status: str
-    timestamp: str
-    message: str | None
-
-class LogMessage(TypedDict):
-    timestamp: str
-    level: str
-    message: str
-    instance_id: str
-    component_id: str
-    component_type: str
 
 class Stream:
     """An async iterator over engine activity.
@@ -118,115 +67,6 @@ class Stream:
     def __aiter__(self) -> Stream: ...
     async def __anext__(self) -> Any: ...
     def __repr__(self) -> str: ...
-
-class LoadSummary(TypedDict):
-    plugins: int
-    sources: int
-    reactions: int
-    bootstrap: int
-
-class PluginKinds(TypedDict):
-    sources: list[str]
-    reactions: list[str]
-    bootstrap: list[str]
-
-class PluginVersion(TypedDict):
-    version: str
-    platforms: list[str]
-
-class PluginSearchResult(TypedDict):
-    reference: str
-    full_reference: str
-    plugin_type: str
-    kind: str
-    versions: list[PluginVersion]
-
-class ResolvedPlugin(TypedDict):
-    reference: str
-    kind: str
-    plugin_type: str
-    version: str
-    target_triple: str
-    sdk_version: str
-    core_version: str
-    lib_version: str
-
-class InstalledPlugin(ResolvedPlugin):
-    path: str
-    verification: Literal["verified", "unsigned", "tampered"]
-    loaded: bool
-
-class QueryMetrics(TypedDict):
-    outbox_size: int
-    outbox_earliest_seq: int
-    outbox_latest_seq: int
-    result_seq_advances: int
-    live_results_count: int
-    outer_transaction_duration_ns_last: int
-    outer_transaction_duration_ns_max: int
-    snapshot_fetch_count: int
-
-class ReactionQueryMetrics(TypedDict):
-    checkpoint_sequence: int
-    checkpoint_lag: int
-    dedup_skip_count: int
-    gap_detection_count: int
-    recovery_strict_count: int
-    recovery_auto_reset_count: int
-    recovery_auto_skip_gap_count: int
-    fetch_snapshot_count: int
-    fetch_outbox_count: int
-
-class LifecycleMetrics(TypedDict):
-    startup_rejection_durable_no_store: int
-    startup_rejection_durable_on_volatile: int
-    startup_rejection_snapshot_skip_gap: int
-    startup_rejection_no_snapshot_auto_reset: int
-    auto_reset_completions: int
-    hash_mismatch_count: int
-
-class PropertySchema(TypedDict, total=False):
-    name: str
-    data_type: str
-    description: str
-
-class NodeSchema(TypedDict):
-    label: str
-    properties: list[PropertySchema]
-
-class RelationSchema(TypedDict, total=False):
-    label: str
-    to: str
-    properties: list[PropertySchema]
-
-class SourceSchema(TypedDict):
-    nodes: list[NodeSchema]
-    relations: list[RelationSchema]
-
-class GraphSchema(TypedDict):
-    nodes: dict[str, Any]
-    relations: dict[str, Any]
-    sources_without_schema: list[str]
-
-class PulledPlugin(TypedDict):
-    reference: str
-    path: str
-    verification: Literal["verified", "unsigned", "tampered"]
-
-class LockedPlugin(TypedDict):
-    reference: str
-    version: str
-    digest: str
-    filename: str
-    platform: str
-    file_hash: str | None
-    sdk_version: str
-    core_version: str
-    lib_version: str
-
-class ConfigSchema(TypedDict):
-    name: str
-    schema: dict[str, Any]
 
 # ------------------------------------------------------------------ exceptions
 
@@ -426,7 +266,7 @@ class Drasi:
 
     # plugins
     def load_plugins(
-        self, directory: str, verify: Mapping[str, str] | None = None
+        self, directory: StrPath, verify: Mapping[str, str] | None = None
     ) -> Awaitable[LoadSummary]: ...
     def plugin_kinds(self) -> Awaitable[PluginKinds]: ...
     def host_info(self) -> HostInfo: ...
@@ -437,28 +277,28 @@ class Drasi:
         self,
         reference: str,
         *,
-        directory: str | None = None,
+        directory: StrPath | None = None,
         verify: bool = False,
         require_signed: bool = False,
         trusted_identities: Sequence[tuple[str, str]] | None = None,
         load: bool = True,
     ) -> Awaitable[InstalledPlugin]: ...
     def watch_plugins(
-        self, directory: str, *, debounce_seconds: float = 1.0
+        self, directory: StrPath, *, debounce_seconds: float = 1.0
     ) -> Awaitable[None]: ...
     def pull_plugin(
         self,
         reference: str,
-        directory: str,
+        directory: StrPath,
         filename: str,
         *,
         verify: bool = False,
         require_signed: bool = False,
         trusted_identities: Sequence[tuple[str, str]] | None = None,
     ) -> Awaitable[PulledPlugin]: ...
-    def write_lockfile(self, directory: str) -> Awaitable[int]: ...
+    def write_lockfile(self, directory: StrPath) -> Awaitable[int]: ...
     @staticmethod
-    def read_lockfile(directory: str) -> list[LockedPlugin]: ...
+    def read_lockfile(directory: StrPath) -> list[LockedPlugin]: ...
     def install_from_lockfile(
         self, directory: str, *, load: bool = True
     ) -> Awaitable[list[str]]: ...

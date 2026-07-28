@@ -22,6 +22,7 @@ import pytest
 
 from drasi import ConfigError, Drasi, DrasiError, UnknownKindError, host_info
 
+from ..conftest import EngineFactory
 from .helpers import wait_for_at_least_rows, wait_for_query_running, wait_for_rows
 
 COUNTER_QUERY = "MATCH (c:Counter) RETURN c.value AS value"
@@ -49,13 +50,13 @@ async def test_create_accepts_no_options_at_all() -> None:
 
 async def test_state_store_requires_a_known_kind(tmp_path: Path) -> None:
     with pytest.raises(UnknownKindError) as caught:
-        await Drasi.create("t", state_store={"kind": "sqlite", "path": str(tmp_path)})
+        await Drasi.create("t", state_store={"kind": "sqlite", "path": str(tmp_path)})  # pyright: ignore[reportArgumentType]  # invalid on purpose
     assert caught.value.code == "UNKNOWN_STATE_STORE_KIND"
 
 
 async def test_state_store_requires_a_path() -> None:
     with pytest.raises(ConfigError) as caught:
-        await Drasi.create("t", state_store={"kind": "redb"})
+        await Drasi.create("t", state_store={"kind": "redb"})  # pyright: ignore[reportArgumentType]  # invalid on purpose
     assert caught.value.code == "STATE_STORE_PATH_REQUIRED"
 
 
@@ -67,7 +68,7 @@ async def test_index_store_requires_a_path() -> None:
 
 async def test_index_store_requires_a_known_kind(tmp_path: Path) -> None:
     with pytest.raises(UnknownKindError) as caught:
-        await Drasi.create("t", index_store={"kind": "lmdb", "path": str(tmp_path)})
+        await Drasi.create("t", index_store={"kind": "lmdb", "path": str(tmp_path)})  # pyright: ignore[reportArgumentType]  # invalid on purpose
     assert caught.value.code == "UNKNOWN_INDEX_STORE_KIND"
 
 
@@ -79,7 +80,7 @@ async def test_identity_requires_a_kind() -> None:
 
 async def test_identity_rejects_an_unknown_kind() -> None:
     with pytest.raises(UnknownKindError) as caught:
-        await Drasi.create("t", identity={"kind": "kerberos"})
+        await Drasi.create("t", identity={"kind": "kerberos"})  # pyright: ignore[reportArgumentType]  # invalid on purpose
     assert caught.value.code == "UNKNOWN_IDENTITY_KIND"
 
 
@@ -93,14 +94,14 @@ async def test_identity_rejects_an_unknown_kind() -> None:
 )
 async def test_identity_requires_its_own_fields(identity: dict[str, str]) -> None:
     with pytest.raises(ConfigError) as caught:
-        await Drasi.create("t", identity=identity)
+        await Drasi.create("t", identity=identity)  # pyright: ignore[reportArgumentType]
     assert caught.value.code == "IDENTITY_CONFIG_INVALID"
 
 
 async def test_options_are_validated_before_awaiting() -> None:
     """A bad option should raise on the call, not on the await."""
     with pytest.raises(DrasiError):
-        Drasi.create("t", state_store={"kind": "nope", "path": "/tmp/x"})
+        Drasi.create("t", state_store={"kind": "nope", "path": "/tmp/x"})  # pyright: ignore[reportArgumentType]  # invalid on purpose
 
 
 # ------------------------------------------------------------------ state store
@@ -161,7 +162,7 @@ async def test_secrets_are_accepted_without_plugins() -> None:
 
 
 @pytest.mark.plugins
-async def test_a_plugin_resolves_a_secret_reference(engine_factory) -> None:
+async def test_a_plugin_resolves_a_secret_reference(engine_factory: EngineFactory) -> None:
     """The point of the secret store: a plugin reading a value it cannot see.
 
     A plugin serialises `{"kind": "Secret", "name": ...}` and calls back into
@@ -188,7 +189,7 @@ async def test_a_plugin_resolves_a_secret_reference(engine_factory) -> None:
 
 @pytest.mark.plugins
 async def test_a_plugin_resolves_an_environment_variable(
-    engine_factory, monkeypatch: pytest.MonkeyPatch
+    engine_factory: EngineFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     plugins = Path(__file__).resolve().parents[2] / "plugins"
     if not any(plugins.glob("*drasi_source_mock*")):
@@ -218,7 +219,7 @@ async def test_a_plugin_resolves_an_environment_variable(
 
 @pytest.mark.plugins
 async def test_a_missing_secret_is_reported_rather_than_silently_empty(
-    engine_factory,
+    engine_factory: EngineFactory,
 ) -> None:
     plugins = Path(__file__).resolve().parents[2] / "plugins"
     if not any(plugins.glob("*drasi_source_mock*")):

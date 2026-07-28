@@ -125,7 +125,7 @@ def execute(dsn: str, statement: str) -> None:
     import psycopg
 
     with psycopg.connect(dsn, autocommit=True) as connection:
-        connection.execute(statement)
+        connection.execute(statement)  # pyright: ignore[reportArgumentType, reportCallIssue]  # psycopg stubs
 
 
 async def watch(engine: Drasi, name: str, row_id: int) -> None:

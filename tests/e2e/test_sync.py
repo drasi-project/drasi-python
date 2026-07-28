@@ -21,18 +21,18 @@ These run outside an event loop, so they are plain `def` tests rather than
 from __future__ import annotations
 
 import inspect
-from typing import Any
 
 import pytest
 
 import drasi
 from drasi.sync import Drasi as SyncDrasi
 from drasi.sync import Stream as SyncStream
+from drasi.types import QueryResultEvent, SourceChange
 
 OPEN_ORDERS = "MATCH (o:Order) WHERE o.status = 'open' RETURN o.id AS id"
 
 
-def order(order_id: str, status: str = "open") -> dict[str, Any]:
+def order(order_id: str, status: str = "open") -> SourceChange:
     return {
         "op": "insert",
         "id": order_id,
@@ -96,7 +96,7 @@ def test_a_stream_stops_when_the_engine_closes() -> None:
 
 def test_callbacks_work_too() -> None:
     with running() as engine:
-        seen: list[dict[str, Any]] = []
+        seen: list[QueryResultEvent] = []
         engine.on_query_results("open", seen.append)
         engine.push_change("orders", order("o1"))
 

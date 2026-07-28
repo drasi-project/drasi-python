@@ -28,6 +28,7 @@ os.environ.setdefault("RUST_LOG", "warn")
 import asyncio
 
 from drasi import Drasi
+from drasi.types import QueryResultEvent  # noqa: E402
 
 OPEN_ORDERS = """
 MATCH (o:Order)
@@ -44,8 +45,14 @@ async def main() -> None:
         await drasi.add_python_source("orders")
         await drasi.add_query("open-orders", OPEN_ORDERS, ["orders"])
 
-        def on_change(event: dict) -> None:
+        def on_change(event: QueryResultEvent) -> None:
             for diff in event["results"]:
+                # Which of `data`, `before` and `after` a diff carries is decided by
+                # its `type`, which a single TypedDict cannot express, so these reads
+                # are checked at runtime rather than by the type checker.
+                # Which of `data`, `before` and `after` a diff carries is decided by
+                # its `type`, which a single TypedDict cannot express, so these reads
+                # are checked at runtime rather than by the type checker.
                 if diff["type"] == "ADD":
                     print(f"  + {diff['data']}")
                 elif diff["type"] == "DELETE":

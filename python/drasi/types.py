@@ -42,9 +42,13 @@ __all__ = [
     "Join",
     "JoinKey",
     "LifecycleMetrics",
+    "LoadSummary",
     "LockedPlugin",
     "LogMessage",
     "NodeSchema",
+    "PluginKinds",
+    "PluginSearchResult",
+    "PluginVersion",
     "PropertySchema",
     "PulledPlugin",
     "QueryConfig",
@@ -55,6 +59,7 @@ __all__ = [
     "ReactionQueryMetrics",
     "RecoveryPolicy",
     "RelationSchema",
+    "ResolvedPlugin",
     "ResultDiff",
     "SourceChange",
     "SourceConfig",
@@ -139,6 +144,12 @@ class SourceChange(TypedDict, total=False):
     start_id: str
     end_id: str
     effective_from: int
+    # The Node.js spellings, accepted on input and listed so that typed callers
+    # can use the aliases the docstring promises.
+    startId: str
+    endId: str
+    inId: str
+    outId: str
 
 
 # --------------------------------------------------------------------- queries
@@ -154,10 +165,19 @@ class Join(TypedDict):
     keys: Sequence[JoinKey]
 
 
-class ResultDiff(TypedDict, total=False):
-    """One way a query's result set changed."""
-
+class _ResultDiffType(TypedDict):
     type: DiffType
+
+
+class ResultDiff(_ResultDiffType, total=False):
+    """One way a query's result set changed.
+
+    `type` is always present, so it lives on the base; which of `data`,
+    `before` and `after` accompanies it depends on that type, which a single
+    `TypedDict` cannot express. Split this way rather than with `NotRequired`,
+    which needs Python 3.11 while this package supports 3.10.
+    """
+
     data: Any
     before: Any
     after: Any
@@ -300,7 +320,20 @@ class LockedPlugin(TypedDict):
     lib_version: str
 
 
-class InstalledPlugin(TypedDict):
+class PluginVersion(TypedDict):
+    version: str
+    platforms: list[str]
+
+
+class PluginSearchResult(TypedDict):
+    reference: str
+    full_reference: str
+    plugin_type: str
+    kind: str
+    versions: list[PluginVersion]
+
+
+class ResolvedPlugin(TypedDict):
     reference: str
     kind: str
     plugin_type: str
@@ -309,9 +342,25 @@ class InstalledPlugin(TypedDict):
     sdk_version: str
     core_version: str
     lib_version: str
+
+
+class InstalledPlugin(ResolvedPlugin):
     path: str
     verification: Literal["verified", "unsigned", "tampered"]
     loaded: bool
+
+
+class LoadSummary(TypedDict):
+    plugins: int
+    sources: int
+    reactions: int
+    bootstrap: int
+
+
+class PluginKinds(TypedDict):
+    sources: list[str]
+    reactions: list[str]
+    bootstrap: list[str]
 
 
 # ------------------------------------------------------------ declarative form

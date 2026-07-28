@@ -79,3 +79,16 @@ include = ["python", "tests", "examples"]
 pythonVersion = "3.10"
 typeCheckingMode = "strict"
 reportMissingModuleSource = false
+# A result diff carries `data`, or `before` and `after`, decided by its
+# `type`. One TypedDict cannot express that, so reading those keys is checked
+# at runtime. Flagging every read would mean an ignore on each one.
+reportTypedDictNotRequiredAccess = false
+# Without this pyright resolves imports against whatever interpreter it finds
+# rather than the project's environment, so `drasi`, `pytest` and the rest come
+# back unresolved and every value derived from them degrades to Unknown. That
+# turned into ~1650 errors that were really one misconfiguration.
+venvPath = "."
+venv = ".venv"
+# Resolve `drasi` from the source tree as well, so type checking does not
+# require the extension to have been built first.
+extraPaths = ["python"]

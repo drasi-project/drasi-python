@@ -124,7 +124,9 @@ async def test_a_lockfile_detects_a_tampered_binary(engine: Drasi, tmp_path: Pat
     await engine.write_lockfile(str(tmp_path))
 
     lockfile = (tmp_path / "plugins.lock").read_text()
-    corrupted = lockfile.replace(Drasi.read_lockfile(str(tmp_path))[0]["file_hash"], "00" * 32)
+    recorded_hash = Drasi.read_lockfile(str(tmp_path))[0]["file_hash"]
+    assert recorded_hash is not None, "the lockfile should record a hash to corrupt"
+    corrupted = lockfile.replace(recorded_hash, "00" * 32)
     (tmp_path / "plugins.lock").write_text(corrupted)
 
     async with await Drasi.create("t-tampered") as replayed:
@@ -190,6 +192,9 @@ async def test_an_unknown_dispatch_mode_is_rejected(engine: Drasi) -> None:
     await engine.add_python_source("s")
     with pytest.raises(DrasiError) as caught:
         await engine.add_query(
-            "bad", "MATCH (o:Order) RETURN o.id AS id", ["s"], dispatch_mode="carrier-pigeon"
+            "bad",
+            "MATCH (o:Order) RETURN o.id AS id",
+            ["s"],
+            dispatch_mode="carrier-pigeon",  # pyright: ignore[reportArgumentType]  # invalid on purpose
         )
     assert caught.value.code == "CONFIG_INVALID"

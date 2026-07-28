@@ -25,6 +25,7 @@ import asyncio
 from typing import Any
 
 from drasi import Drasi
+from drasi.types import QueryResultEvent, ResultDiff
 
 DEFAULT_TIMEOUT = 10.0
 POLL_INTERVAL = 0.01
@@ -155,15 +156,15 @@ class EventRecorder:
     """Collects the diffs delivered to a Python reaction."""
 
     def __init__(self) -> None:
-        self.events: list[dict[str, Any]] = []
-        self.diffs: list[dict[str, Any]] = []
+        self.events: list[QueryResultEvent] = []
+        self.diffs: list[ResultDiff] = []
         self._cursor = 0
 
-    def __call__(self, event: dict[str, Any]) -> None:
+    def __call__(self, event: QueryResultEvent) -> None:
         self.events.append(event)
         self.diffs.extend(event["results"])
 
-    async def take(self, count: int, *, timeout: float = DEFAULT_TIMEOUT) -> list[dict[str, Any]]:
+    async def take(self, count: int, *, timeout: float = DEFAULT_TIMEOUT) -> list[ResultDiff]:
         """Waits for the next `count` unread diffs and returns them."""
         await wait_for(
             lambda: len(self.diffs) - self._cursor >= count,

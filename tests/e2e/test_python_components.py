@@ -24,6 +24,7 @@ from typing import Any
 import pytest
 
 from drasi import Drasi, DrasiError, SourceError, UnknownKindError
+from drasi.types import ChangeOp, QueryResultEvent
 
 from .helpers import (
     collect_events,
@@ -124,7 +125,7 @@ async def test_delete_removes_the_row(engine: Drasi) -> None:
 
 
 @pytest.mark.parametrize("insert_op", ["insert", "add", "INSERT"])
-async def test_insert_aliases_are_accepted(engine: Drasi, insert_op: str) -> None:
+async def test_insert_aliases_are_accepted(engine: Drasi, insert_op: ChangeOp) -> None:
     await engine.add_python_source("orders")
     await engine.add_query("open", OPEN_ORDERS, ["orders"])
     await engine.start()
@@ -417,7 +418,7 @@ async def test_running_source_with_dependents_is_not_removed(engine: Drasi) -> N
 async def test_running_reaction_can_be_removed(engine: Drasi) -> None:
     await engine.add_python_source("orders")
     await engine.add_query("open", OPEN_ORDERS, ["orders"])
-    seen: list[dict[str, Any]] = []
+    seen: list[QueryResultEvent] = []
     await engine.add_python_reaction("watch", ["open"], seen.append)
     await engine.start()
     await wait_for_query_running(engine, "open")
@@ -442,7 +443,7 @@ async def test_running_reaction_can_be_removed(engine: Drasi) -> None:
 async def test_stopped_reaction_replays_missed_results_when_restarted(engine: Drasi) -> None:
     await engine.add_python_source("orders")
     await engine.add_query("open", OPEN_ORDERS, ["orders"])
-    seen: list[dict[str, Any]] = []
+    seen: list[QueryResultEvent] = []
     await engine.add_python_reaction("watch", ["open"], seen.append)
     await engine.start()
     await wait_for_query_running(engine, "open")
@@ -491,7 +492,7 @@ async def test_duplicate_component_ids_are_rejected(engine: Drasi, component: st
 
 async def test_unknown_query_language_is_rejected(engine: Drasi) -> None:
     with pytest.raises(UnknownKindError) as caught:
-        await engine.add_query("q", "MATCH (n) RETURN n", ["s"], language="sparql")
+        await engine.add_query("q", "MATCH (n) RETURN n", ["s"], language="sparql")  # pyright: ignore[reportArgumentType]  # invalid on purpose
     assert caught.value.code == "UNKNOWN_QUERY_LANGUAGE"
 
 
@@ -519,14 +520,14 @@ async def test_change_requires_an_id(engine: Drasi) -> None:
 async def test_change_must_be_a_mapping(engine: Drasi) -> None:
     await engine.add_python_source("orders")
     with pytest.raises(SourceError) as caught:
-        await engine.push_change("orders", ["not", "a", "mapping"])
+        await engine.push_change("orders", ["not", "a", "mapping"])  # pyright: ignore[reportArgumentType]  # invalid on purpose
     assert caught.value.code == "CHANGE_NOT_OBJECT"
 
 
 async def test_unknown_change_op_is_rejected(engine: Drasi) -> None:
     await engine.add_python_source("orders")
     with pytest.raises(DrasiError) as caught:
-        await engine.push_change("orders", {"op": "upsert", "id": "o1"})
+        await engine.push_change("orders", {"op": "upsert", "id": "o1"})  # pyright: ignore[reportArgumentType]  # invalid on purpose
     assert caught.value.code == "UNKNOWN_CHANGE_OP"
 
 
@@ -542,7 +543,7 @@ async def test_half_a_relation_is_rejected(engine: Drasi) -> None:
 
 async def test_a_non_callable_reaction_is_rejected(engine: Drasi) -> None:
     with pytest.raises(DrasiError) as caught:
-        await engine.add_python_reaction("bad", ["open"], "not callable")
+        await engine.add_python_reaction("bad", ["open"], "not callable")  # pyright: ignore[reportArgumentType]  # invalid on purpose
     assert caught.value.code == "CONFIG_INVALID"
 
 
@@ -560,7 +561,7 @@ async def test_errors_are_raised_before_awaiting(engine: Drasi) -> None:
         assert err.code == "CHANGE_OP_REQUIRED"
     finally:
         if pending is not None:  # pragma: no cover - only on regression
-            pending.close()
+            getattr(pending, "close", lambda: None)()
             pytest.fail("push_change returned an awaitable instead of raising")
 
 

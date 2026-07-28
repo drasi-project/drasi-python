@@ -29,6 +29,9 @@ import drasi
 
 ROOT = Path(__file__).resolve().parents[2]
 STUB = ROOT / "python" / "drasi" / "_drasi.pyi"
+# Shared shapes live in `types.py`, which the stub imports from, so the two
+# together are the declared surface.
+TYPES = ROOT / "python" / "drasi" / "types.py"
 
 # Defined by PyO3 rather than declared in the stub's class body.
 DUNDER_ALLOWLIST = {"__aenter__", "__aexit__"}
@@ -40,10 +43,11 @@ def stub() -> ast.Module:
 
 
 def _class(stub: ast.Module, name: str) -> ast.ClassDef:
-    for node in stub.body:
-        if isinstance(node, ast.ClassDef) and node.name == name:
-            return node
-    raise AssertionError(f"{name} is missing from {STUB.name}")
+    for module in (stub, ast.parse(TYPES.read_text(encoding="utf-8"))):
+        for node in module.body:
+            if isinstance(node, ast.ClassDef) and node.name == name:
+                return node
+    raise AssertionError(f"{name} is missing from {STUB.name} and {TYPES.name}")
 
 
 def _top_level_names(stub: ast.Module) -> set[str]:

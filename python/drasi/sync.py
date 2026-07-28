@@ -36,10 +36,13 @@ from __future__ import annotations
 import asyncio
 import threading
 from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
+from os import PathLike
 from types import TracebackType
 from typing import Any, TypeVar
 
-from . import _drasi
+# The facade exists to wrap the extension module, so reaching into it here
+# is the point rather than a leak.
+from . import _drasi  # pyright: ignore[reportPrivateUsage]
 from .types import (
     ComponentEvent,
     ConfigSchema,
@@ -51,18 +54,24 @@ from .types import (
     InstalledPlugin,
     Join,
     LifecycleMetrics,
+    LoadSummary,
     LockedPlugin,
     LogMessage,
+    PluginKinds,
+    PluginSearchResult,
     PulledPlugin,
     QueryLanguage,
     QueryMetrics,
     QueryResultEvent,
     ReactionQueryMetrics,
     RecoveryPolicy,
+    ResolvedPlugin,
     SourceChange,
     SourceSchema,
     StateStore,
 )
+
+StrPath = str | PathLike[str]
 
 __all__ = ["Drasi", "Stream"]
 
@@ -432,26 +441,26 @@ class Drasi:
     # ---------------------------------------------------------------- plugins
 
     def load_plugins(
-        self, directory: str, verify: Mapping[str, str] | None = None
-    ) -> dict[str, int]:
+        self, directory: StrPath, verify: Mapping[str, str] | None = None
+    ) -> LoadSummary:
         return _Loop.run(lambda: self._inner.load_plugins(directory, verify))
 
-    def watch_plugins(self, directory: str, *, debounce_seconds: float = 1.0) -> None:
+    def watch_plugins(self, directory: StrPath, *, debounce_seconds: float = 1.0) -> None:
         _Loop.run(lambda: self._inner.watch_plugins(directory, debounce_seconds=debounce_seconds))
 
-    def plugin_kinds(self) -> dict[str, list[str]]:
+    def plugin_kinds(self) -> PluginKinds:
         return _Loop.run(lambda: self._inner.plugin_kinds())
 
     def host_info(self) -> HostInfo:
         return self._inner.host_info()
 
-    def search_plugins(self, query: str | None = None) -> list[dict[str, Any]]:
+    def search_plugins(self, query: str | None = None) -> list[PluginSearchResult]:
         return _Loop.run(lambda: self._inner.search_plugins(query))
 
     def list_plugin_tags(self, repository: str) -> list[str]:
         return _Loop.run(lambda: self._inner.list_plugin_tags(repository))
 
-    def resolve_plugin(self, reference: str) -> dict[str, str]:
+    def resolve_plugin(self, reference: str) -> ResolvedPlugin:
         return _Loop.run(lambda: self._inner.resolve_plugin(reference))
 
     def install_plugin(
