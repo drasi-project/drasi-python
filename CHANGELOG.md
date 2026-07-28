@@ -7,7 +7,17 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- `add_source(..., bootstrap={"kind": ..., ...})`, which attaches a bootstrap
+  provider to a plugin source. A CDC source such as `postgres` streams the
+  write-ahead log from the point its replication slot is created, so rows
+  written before that are invisible to it and a query starts empty however much
+  data is already in the table. Loading the current contents is a bootstrap
+  provider's job. The binding could already install and inspect
+  `bootstrap/postgres`, but nothing attached it - `add_source` never called the
+  source's `set_bootstrap_provider` - so installing it appeared to succeed and
+  then did nothing, which looked like the source silently dropping data.
 
 ## [0.1.1] - 2026-07-28
 

@@ -301,8 +301,13 @@ class Drasi:
         config: Mapping[str, Any] | None = None,
         *,
         auto_start: bool = True,
+        bootstrap: Mapping[str, Any] | None = None,
     ) -> None:
-        _Loop.run(lambda: self._inner.add_source(kind, id, config, auto_start=auto_start))
+        _Loop.run(
+            lambda: self._inner.add_source(
+                kind, id, config, auto_start=auto_start, bootstrap=bootstrap
+            )
+        )
 
     def update_source(
         self,

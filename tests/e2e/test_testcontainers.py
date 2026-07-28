@@ -30,7 +30,7 @@ from typing import Any
 import pytest
 import pytest_asyncio
 
-from drasi import Drasi
+from drasi import Drasi, DrasiError
 
 from .helpers import collect_events, wait_for_query_running, wait_for_result, wait_for_rows
 
@@ -207,3 +207,76 @@ async def test_a_query_only_sees_changes_made_after_it_subscribed(
     await watch(engine_with_postgres, "late", 500)
 
     assert await engine_with_postgres.get_query_results("late") == []
+
+
+async def test_a_bootstrap_provider_loads_rows_written_before_the_source_existed(
+    postgres: dict[str, Any],
+) -> None:
+    """Without one, a CDC source starts blind to everything already in the table.
+
+    The source streams the write-ahead log from the point its replication slot
+    is created, so rows written earlier are invisible to it however many there
+    are. Attaching `bootstrap/postgres` is what loads the current contents, and
+    for a long time this binding could install that plugin but never attach it,
+    which made the gap look like the source silently losing data.
+
+    Uses its own engine and slot so the shared fixture's stream is untouched.
+    """
+    execute(postgres["dsn"], "INSERT INTO orders (id, status) VALUES (900, 'open')")
+
+    engine = await Drasi.create("tier3-bootstrap")
+    try:
+        await engine.install_plugin("source/postgres")
+        await engine.install_plugin("bootstrap/postgres")
+        await engine.start()
+        await engine.add_source(
+            "postgres",
+            "pre-existing",
+            {**postgres["config"], "slotName": "drasi_bootstrap_test"},
+            bootstrap={"kind": "postgres", **postgres["config"]},
+        )
+        await engine.add_query(
+            "already-there",
+            "MATCH (o:orders) WHERE o.id = 900 RETURN o.id AS id, o.status AS status",
+            ["pre-existing"],
+        )
+        await wait_for_query_running(engine, "already-there")
+
+        rows = await wait_for_rows(engine, "already-there", count=1, timeout=60)
+        assert rows == [{"id": 900, "status": "open"}]
+    finally:
+        await engine.close()
+
+
+async def test_an_unknown_bootstrap_kind_is_rejected(postgres: dict[str, Any]) -> None:
+    engine = await Drasi.create("tier3-bootstrap-unknown")
+    try:
+        await engine.install_plugin("source/postgres")
+        await engine.start()
+        with pytest.raises(DrasiError) as caught:
+            await engine.add_source(
+                "postgres",
+                "nope",
+                {**postgres["config"], "slotName": "drasi_bootstrap_unknown"},
+                bootstrap={"kind": "not-a-bootstrap-plugin"},
+            )
+        assert caught.value.code == "UNKNOWN_BOOTSTRAP_KIND"
+    finally:
+        await engine.close()
+
+
+async def test_a_bootstrap_without_a_kind_is_rejected(postgres: dict[str, Any]) -> None:
+    engine = await Drasi.create("tier3-bootstrap-nokind")
+    try:
+        await engine.install_plugin("source/postgres")
+        await engine.start()
+        with pytest.raises(DrasiError) as caught:
+            await engine.add_source(
+                "postgres",
+                "nope",
+                {**postgres["config"], "slotName": "drasi_bootstrap_nokind"},
+                bootstrap={"host": "localhost"},
+            )
+        assert caught.value.code == "CONFIG_INVALID"
+    finally:
+        await engine.close()

@@ -1604,7 +1604,13 @@ impl Drasi {
     // ------------------------------------------------ plugin-backed components
 
     /// Adds a source provided by a loaded plugin.
-    #[pyo3(signature = (kind, id, config = None, *, auto_start = true))]
+    ///
+    /// `bootstrap` attaches a bootstrap provider, which loads the data that
+    /// already exists in the backing system. A CDC source such as `postgres`
+    /// only streams changes from the point its replication slot was created,
+    /// so without one a query starts empty however much data is already there.
+    /// It takes the provider's `kind` plus that provider's own configuration.
+    #[pyo3(signature = (kind, id, config = None, *, auto_start = true, bootstrap = None))]
     fn add_source<'py>(
         &self,
         py: Python<'py>,
@@ -1612,11 +1618,13 @@ impl Drasi {
         id: String,
         config: Option<&Bound<'py, PyAny>>,
         auto_start: bool,
+        bootstrap: Option<&Bound<'py, PyAny>>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let config = match config {
             Some(value) => py_to_json(value)?,
             None => serde_json::json!({}),
         };
+        let bootstrap = bootstrap.map(parse_bootstrap).transpose()?;
         let inner = self.inner();
         inner.ensure_open()?;
         future_into_py(py, async move {
@@ -1629,6 +1637,24 @@ impl Drasi {
                 .create_source(&id, &config, auto_start)
                 .await
                 .map_err(engine_error)?;
+            if let Some((bootstrap_kind, bootstrap_config)) = bootstrap {
+                let bootstrapper = inner
+                    .plugins
+                    .bootstrap_descriptor(&bootstrap_kind)
+                    .await
+                    .ok_or_else(|| {
+                        unknown_kind(
+                            DrasiErrorCode::UnknownBootstrapKind,
+                            "bootstrap",
+                            &bootstrap_kind,
+                        )
+                    })?;
+                let provider = bootstrapper
+                    .create_bootstrap_provider(&bootstrap_config, &config)
+                    .await
+                    .map_err(engine_error)?;
+                source.set_bootstrap_provider(provider).await;
+            }
             inner
                 .core
                 .add_source_with_metadata(
@@ -2198,6 +2224,39 @@ struct ComponentConfig {
 
 fn config_error(detail: impl std::fmt::Display) -> PyErr {
     error(DrasiErrorCode::ConfigInvalid, detail.to_string())
+}
+
+/// Splits a bootstrap specification into its provider kind and configuration.
+///
+/// The kind names the bootstrap plugin; everything else is that plugin's own
+/// configuration, which is handed to it alongside the source's configuration.
+fn parse_bootstrap(value: &Bound<'_, PyAny>) -> PyResult<(String, serde_json::Value)> {
+    let mut config = py_to_json(value)?;
+    let kind = {
+        let object = config.as_object_mut().ok_or_else(|| {
+            error(
+                DrasiErrorCode::ConfigInvalid,
+                "'bootstrap' must be a mapping naming a bootstrap plugin",
+            )
+        })?;
+        match object.remove("kind") {
+            Some(serde_json::Value::String(kind)) => kind,
+            Some(_) => {
+                return Err(error(
+                    DrasiErrorCode::ConfigInvalid,
+                    "'bootstrap.kind' must be a string",
+                ))
+            }
+            None => {
+                return Err(error(
+                    DrasiErrorCode::ConfigInvalid,
+                    "'bootstrap' needs a 'kind' naming the bootstrap plugin, \
+                     for example {'kind': 'postgres', ...}",
+                ))
+            }
+        }
+    };
+    Ok((kind, config))
 }
 
 fn parse_component_configs(
