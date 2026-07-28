@@ -70,6 +70,10 @@ The project is organization-owned from the outset, and no transfer is needed.
 
 ### Fallback: pending publisher, then transfer
 
+> Only useful for a project that does not exist yet. Once the name is
+> registered, a pending publisher for it can no longer be created, and the
+> project-level route above is the only option.
+
 If the project has already been created from a personal account, an
 organization **Owner** can move it: **Your organizations** → **Manage** →
 **Projects** → select the project at the bottom → **Transfer existing project**.
@@ -79,6 +83,22 @@ projects already associated with that user's account.
 If you go this route, register the pending publisher at
 <https://pypi.org/manage/account/publishing/> with the same four values above
 plus **PyPI Project Name** `drasi-lib`.
+
+### If the organization's "Manage" button is greyed out
+
+The organization's **Projects** list is not the route to a project's settings.
+Use **Your projects** (<https://pypi.org/manage/projects/>) instead, which is
+where PyPI's own documentation sends you, or go straight to
+<https://pypi.org/manage/project/drasi-lib/settings/publishing/>.
+
+If that is refused rather than merely hidden, it is a permissions problem
+rather than a navigation one. Managing a specific project needs a **project
+role**, which an organization role does not confer on its own: an organization
+Owner has to add you as a collaborator on the project with the **Owner** role
+(**Manage** the organization → **Projects** → the project → **Collaborators**).
+
+For a Company organization, also check the subscription is current — project
+management is restricted while billing is lapsed.
 
 ### Either way
 
