@@ -252,6 +252,8 @@ class Drasi:
     @property
     def id(self) -> str: ...
     @staticmethod
+    def from_config(config: Mapping[str, Any]) -> Awaitable[Drasi]: ...
+    @staticmethod
     def create(
         id: str,
         *,
@@ -323,6 +325,14 @@ class Drasi:
         id: str,
         query_ids: Sequence[str],
         callback: Callable[[QueryResultEvent], object],
+    ) -> Awaitable[None]: ...
+    def add_durable_python_reaction(
+        self,
+        id: str,
+        query_ids: Sequence[str],
+        callback: Callable[[QueryResultEvent], Awaitable[object]],
+        *,
+        recovery_policy: Literal["strict", "auto_reset", "skip_gap"] = "strict",
     ) -> Awaitable[None]: ...
 
     # components provided by plugins

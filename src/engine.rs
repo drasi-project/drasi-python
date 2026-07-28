@@ -51,6 +51,9 @@ pub struct Inner {
     default_plugin_dir: Mutex<Option<PathBuf>>,
     /// Distinguishes the reactions created to back result streams.
     stream_counter: AtomicU64,
+    /// Whether a durable state store was configured. Durable reactions need
+    /// one to persist their checkpoints across restarts.
+    durable_capable: bool,
 }
 
 impl Inner {
@@ -121,6 +124,7 @@ impl Drasi {
     ) -> PyResult<Bound<'py, PyAny>> {
         // Parse eagerly so a malformed option raises before the caller awaits.
         let options = CreateOptions::parse(secrets, state_store, index_store, identity)?;
+        let durable_capable = options.has_state_store();
 
         future_into_py(py, async move {
             let (builder, secrets) = options
@@ -135,12 +139,152 @@ impl Drasi {
                     plugins: Arc::new(PluginHost::new(secrets)),
                     default_plugin_dir: Mutex::new(None),
                     stream_counter: AtomicU64::new(0),
+                    durable_capable,
                 }),
             })
         })
     }
 
-    /// The engine identifier supplied to `create`.
+    /// Builds an engine from a declarative configuration, and starts it.
+    ///
+    /// Accepts the same options as `create`, plus `plugins_dir`, `sources`,
+    /// `queries` and `reactions`. Components are added in that order, because a
+    /// query needs its sources and a reaction needs its queries.
+    #[staticmethod]
+    fn from_config<'py>(
+        py: Python<'py>,
+        config: &Bound<'py, PyAny>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let config = config.cast::<PyDict>().map_err(|_| {
+            error(
+                DrasiErrorCode::ConfigInvalid,
+                "the configuration must be a mapping",
+            )
+        })?;
+
+        let id: String = match config.get_item("id")? {
+            Some(value) if !value.is_none() => value
+                .extract()
+                .map_err(|_| error(DrasiErrorCode::ConfigInvalid, "'id' must be a string"))?,
+            _ => "drasi".to_string(),
+        };
+
+        let options = CreateOptions::parse(
+            config
+                .get_item("secrets")?
+                .filter(|value| !value.is_none())
+                .map(|value| value.extract())
+                .transpose()?,
+            config
+                .get_item("state_store")?
+                .filter(|v| !v.is_none())
+                .as_ref(),
+            config
+                .get_item("index_store")?
+                .filter(|v| !v.is_none())
+                .as_ref(),
+            config
+                .get_item("identity")?
+                .filter(|v| !v.is_none())
+                .as_ref(),
+        )?;
+        let durable_capable = options.has_state_store();
+
+        // Everything is parsed before the engine exists, so a malformed
+        // configuration fails without leaving a half-built engine behind.
+        let plugins_dir: Option<PathBuf> = config
+            .get_item("plugins_dir")?
+            .filter(|value| !value.is_none())
+            .map(|value| value.extract())
+            .transpose()?;
+        let sources = parse_component_configs(config, "sources")?;
+        let queries = parse_query_configs(config)?;
+        let reactions = parse_component_configs(config, "reactions")?;
+
+        future_into_py(py, async move {
+            let (builder, secrets) = options
+                .apply(DrasiLib::builder().with_id(id.clone()))
+                .await?;
+            let core = builder.build().await.map_err(engine_error)?;
+            let drasi = Drasi {
+                inner: Arc::new(Inner {
+                    id,
+                    core,
+                    python_sources: Mutex::new(HashMap::new()),
+                    plugins: Arc::new(PluginHost::new(secrets)),
+                    default_plugin_dir: Mutex::new(None),
+                    stream_counter: AtomicU64::new(0),
+                    durable_capable,
+                }),
+            };
+            let inner = Arc::clone(&drasi.inner);
+
+            if let Some(dir) = plugins_dir {
+                inner
+                    .plugins
+                    .load_dir(&inner.core, &inner.id, &dir, None)
+                    .await
+                    .map_err(plugin_error)?;
+            }
+
+            inner.core.start().await.map_err(engine_error)?;
+
+            for source in sources {
+                let descriptor = inner
+                    .plugins
+                    .source_descriptor(&source.kind)
+                    .await
+                    .ok_or_else(|| {
+                        unknown_kind(DrasiErrorCode::UnknownSourceKind, "source", &source.kind)
+                    })?;
+                let created = descriptor
+                    .create_source(&source.id, &source.config, source.auto_start)
+                    .await
+                    .map_err(engine_error)?;
+                inner
+                    .core
+                    .add_source(BoxedSource(created))
+                    .await
+                    .map_err(engine_error)?;
+            }
+
+            for query in queries {
+                inner.core.add_query(query).await.map_err(engine_error)?;
+            }
+
+            for reaction in reactions {
+                let descriptor = inner
+                    .plugins
+                    .reaction_descriptor(&reaction.kind)
+                    .await
+                    .ok_or_else(|| {
+                        unknown_kind(
+                            DrasiErrorCode::UnknownReactionKind,
+                            "reaction",
+                            &reaction.kind,
+                        )
+                    })?;
+                let created = descriptor
+                    .create_reaction(
+                        &reaction.id,
+                        reaction.queries.clone(),
+                        &reaction.config,
+                        reaction.auto_start,
+                    )
+                    .await
+                    .map_err(engine_error)?;
+                inner
+                    .core
+                    .add_reaction(BoxedReaction(created))
+                    .await
+                    .map_err(engine_error)?;
+            }
+
+            Ok(drasi)
+        })
+    }
+
+    /// The engine identifier supplied to `create`.    /// The engine identifier supplied to `create`.
     #[getter]
     fn id(&self) -> &str {
         &self.inner.id
@@ -1275,6 +1419,48 @@ impl Drasi {
         })
     }
 
+    /// Registers a reaction whose async callback must succeed before the
+    /// checkpoint advances.
+    ///
+    /// Unlike `add_python_reaction`, this waits for the coroutine to finish. If
+    /// it raises, the checkpoint is left where it was, so the event is replayed
+    /// after a restart rather than lost. That guarantee needs somewhere durable
+    /// to keep the checkpoint, so a `state_store` is required.
+    #[pyo3(signature = (id, query_ids, callback, *, recovery_policy = "strict"))]
+    fn add_durable_python_reaction<'py>(
+        &self,
+        py: Python<'py>,
+        id: String,
+        query_ids: Vec<String>,
+        callback: Py<PyAny>,
+        recovery_policy: &str,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        // The state store is an engine-level precondition, so it is reported
+        // before anything about the callback.
+        if !self.inner.durable_capable {
+            return Err(error(
+                DrasiErrorCode::DurableRequiresStateStore,
+                "a durable reaction needs somewhere to keep its checkpoint; \
+                 pass state_store={'kind': 'redb', 'path': ...} to Drasi.create",
+            ));
+        }
+        require_callable(py, &callback)?;
+        require_coroutine_function(py, &callback)?;
+        let recovery = parse_recovery_policy(recovery_policy)?;
+        // Captured here, while we are still on the caller's event loop.
+        let locals = pyo3_async_runtimes::TaskLocals::with_running_loop(py)?.copy_context(py)?;
+        let inner = self.inner();
+        future_into_py(py, async move {
+            inner
+                .core
+                .add_reaction(PythonReaction::durable(
+                    &id, query_ids, callback, recovery, locals,
+                ))
+                .await
+                .map_err(engine_error)
+        })
+    }
+
     // ------------------------------------------------ plugin-backed components
 
     /// Adds a source provided by a loaded plugin.
@@ -1823,6 +2009,170 @@ fn require_callable(py: Python<'_>, callback: &Py<PyAny>) -> PyResult<()> {
         Err(error(
             DrasiErrorCode::ConfigInvalid,
             "a stream callback must be callable",
+        ))
+    }
+}
+
+/// Parses the recovery policy for a durable reaction.
+fn parse_recovery_policy(policy: &str) -> PyResult<drasi_lib::ReactionRecoveryPolicy> {
+    match policy
+        .trim()
+        .to_ascii_lowercase()
+        .replace('-', "_")
+        .as_str()
+    {
+        "strict" => Ok(drasi_lib::ReactionRecoveryPolicy::Strict),
+        "auto_reset" => Ok(drasi_lib::ReactionRecoveryPolicy::AutoReset),
+        "skip_gap" | "auto_skip_gap" => Ok(drasi_lib::ReactionRecoveryPolicy::AutoSkipGap),
+        other => Err(error(
+            DrasiErrorCode::ConfigInvalid,
+            format!(
+                "unknown recovery policy '{other}', expected 'strict', \
+                 'auto_reset' or 'skip_gap'"
+            ),
+        )),
+    }
+}
+
+/// A source or reaction declared in a configuration mapping.
+struct ComponentConfig {
+    kind: String,
+    id: String,
+    config: serde_json::Value,
+    queries: Vec<String>,
+    auto_start: bool,
+}
+
+fn config_error(detail: impl std::fmt::Display) -> PyErr {
+    error(DrasiErrorCode::ConfigInvalid, detail.to_string())
+}
+
+fn parse_component_configs(
+    config: &Bound<'_, PyDict>,
+    key: &str,
+) -> PyResult<Vec<ComponentConfig>> {
+    let Some(entries) = config.get_item(key)?.filter(|value| !value.is_none()) else {
+        return Ok(Vec::new());
+    };
+
+    let mut parsed = Vec::new();
+    for entry in entries.try_iter()? {
+        let entry = entry?;
+        let entry = entry
+            .cast::<PyDict>()
+            .map_err(|_| config_error(format!("each entry in '{key}' must be a mapping")))?;
+
+        let kind: String = entry
+            .get_item("kind")?
+            .ok_or_else(|| config_error(format!("an entry in '{key}' is missing 'kind'")))?
+            .extract()
+            .map_err(|_| config_error("'kind' must be a string"))?;
+        let id: String = entry
+            .get_item("id")?
+            .ok_or_else(|| config_error(format!("an entry in '{key}' is missing 'id'")))?
+            .extract()
+            .map_err(|_| config_error("'id' must be a string"))?;
+
+        let component_config = match entry.get_item("config")?.filter(|v| !v.is_none()) {
+            Some(value) => py_to_json(&value)?,
+            None => serde_json::json!({}),
+        };
+        let queries: Vec<String> = match entry.get_item("queries")?.filter(|v| !v.is_none()) {
+            Some(value) => value
+                .extract()
+                .map_err(|_| config_error("'queries' must be a sequence of strings"))?,
+            None => Vec::new(),
+        };
+        let auto_start = match entry.get_item("auto_start")?.filter(|v| !v.is_none()) {
+            Some(value) => value
+                .extract()
+                .map_err(|_| config_error("'auto_start' must be a boolean"))?,
+            None => true,
+        };
+
+        parsed.push(ComponentConfig {
+            kind,
+            id,
+            config: component_config,
+            queries,
+            auto_start,
+        });
+    }
+    Ok(parsed)
+}
+
+fn parse_query_configs(
+    config: &Bound<'_, PyDict>,
+) -> PyResult<Vec<drasi_lib::config::QueryConfig>> {
+    let Some(entries) = config.get_item("queries")?.filter(|value| !value.is_none()) else {
+        return Ok(Vec::new());
+    };
+
+    let mut parsed = Vec::new();
+    for entry in entries.try_iter()? {
+        let entry = entry?;
+        let entry = entry
+            .cast::<PyDict>()
+            .map_err(|_| config_error("each entry in 'queries' must be a mapping"))?;
+
+        let id: String = entry
+            .get_item("id")?
+            .ok_or_else(|| config_error("a query is missing 'id'"))?
+            .extract()
+            .map_err(|_| config_error("'id' must be a string"))?;
+        let query: String = entry
+            .get_item("query")?
+            .ok_or_else(|| config_error(format!("query '{id}' is missing 'query'")))?
+            .extract()
+            .map_err(|_| config_error("'query' must be a string"))?;
+        let sources: Vec<String> = entry
+            .get_item("sources")?
+            .ok_or_else(|| config_error(format!("query '{id}' is missing 'sources'")))?
+            .extract()
+            .map_err(|_| config_error("'sources' must be a sequence of strings"))?;
+        let language: String = match entry.get_item("language")?.filter(|v| !v.is_none()) {
+            Some(value) => value
+                .extract()
+                .map_err(|_| config_error("'language' must be a string"))?,
+            None => "cypher".to_string(),
+        };
+        let joins = entry.get_item("joins")?.filter(|value| !value.is_none());
+
+        parsed.push(build_query(
+            &id,
+            &query,
+            &sources,
+            &language,
+            joins.as_ref(),
+            QueryTuning::default(),
+        )?);
+    }
+    Ok(parsed)
+}
+
+/// Rejects an obviously non-async callback before it silently fails per event.
+///
+/// Only plain functions are checked. Any other callable — a class with an
+/// `async def __call__`, a `functools.partial` — is allowed through, and the
+/// per-event check catches it if it turns out not to be awaitable.
+fn require_coroutine_function(py: Python<'_>, callback: &Py<PyAny>) -> PyResult<()> {
+    let inspect = py.import("inspect")?;
+    let bound = callback.bind(py);
+    let is_function: bool = inspect.call_method1("isfunction", (bound,))?.extract()?;
+    let is_method: bool = inspect.call_method1("ismethod", (bound,))?.extract()?;
+    if !(is_function || is_method) {
+        return Ok(());
+    }
+    let is_coroutine: bool = inspect
+        .call_method1("iscoroutinefunction", (bound,))?
+        .extract()?;
+    if is_coroutine {
+        Ok(())
+    } else {
+        Err(error(
+            DrasiErrorCode::ConfigInvalid,
+            "a durable reaction callback must be async, so the checkpoint can wait \
+             for it; define it with `async def`",
         ))
     }
 }

@@ -86,6 +86,14 @@ impl CreateOptions {
         })
     }
 
+    /// Whether a durable state store was configured.
+    ///
+    /// Durable reactions need one, since their checkpoints have to survive a
+    /// restart to be worth anything.
+    pub fn has_state_store(&self) -> bool {
+        self.state_store.is_some()
+    }
+
     /// Applies the options to a builder, returning the secrets for the plugin
     /// config resolver.
     ///

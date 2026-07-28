@@ -29,10 +29,11 @@ use drasi_lib::channels::{QueryResult, SubscriptionResponse};
 use drasi_lib::config::SourceSubscriptionSettings;
 use drasi_lib::context::{ReactionRuntimeContext, SourceRuntimeContext};
 use drasi_lib::{
-    BootstrapProvider, ComponentStatus, Reaction, ReactionBase, ReactionBaseParams, Source,
-    SourceBase, SourceBaseParams,
+    BootstrapProvider, ComponentStatus, Reaction, ReactionBase, ReactionBaseParams,
+    ReactionRecoveryPolicy, Source, SourceBase, SourceBaseParams,
 };
 use pyo3::prelude::*;
+use pyo3_async_runtimes::TaskLocals;
 use serde_json::Value;
 
 use crate::conversions::json_to_py;
@@ -392,6 +393,14 @@ impl Reaction for StreamingReaction {
 pub struct PythonReaction {
     base: ReactionBase,
     callback: Arc<Py<PyAny>>,
+    /// Durable reactions await an async callback and only advance the
+    /// checkpoint once it succeeds, so a restart replays anything unhandled.
+    durable: bool,
+    /// The asyncio loop captured when the reaction was registered.
+    ///
+    /// The processing loop runs on a tokio worker with no asyncio loop of its
+    /// own, so a coroutine has to be scheduled back onto the caller's.
+    locals: Option<TaskLocals>,
 }
 
 impl PythonReaction {
@@ -399,6 +408,25 @@ impl PythonReaction {
         Self {
             base: ReactionBase::new(ReactionBaseParams::new(id, query_ids)),
             callback: Arc::new(callback),
+            durable: false,
+            locals: None,
+        }
+    }
+
+    pub fn durable(
+        id: &str,
+        query_ids: Vec<String>,
+        callback: Py<PyAny>,
+        recovery: ReactionRecoveryPolicy,
+        locals: TaskLocals,
+    ) -> Self {
+        Self {
+            base: ReactionBase::new(
+                ReactionBaseParams::new(id, query_ids).with_recovery_policy(recovery),
+            ),
+            callback: Arc::new(callback),
+            durable: true,
+            locals: Some(locals),
         }
     }
 }
@@ -415,6 +443,37 @@ fn dispatch(callback: &Py<PyAny>, result: &QueryResult) -> Result<()> {
         callback.call1(py, (event,))?;
         Ok(())
     })
+}
+
+/// Calls an async Python callback and waits for it to finish.
+///
+/// Returning an error leaves the checkpoint unadvanced, so the event is
+/// retried on restart rather than being lost.
+async fn dispatch_async(
+    callback: &Py<PyAny>,
+    locals: &TaskLocals,
+    result: &QueryResult,
+) -> Result<()> {
+    let payload = serde_json::to_value(result)?;
+    let awaitable = Python::attach(|py| -> Result<_> {
+        let event = json_to_py(py, &payload)?;
+        let returned = callback.call1(py, (event,))?;
+        let coroutine = returned.bind(py);
+        if !coroutine.hasattr("__await__")? {
+            anyhow::bail!(
+                "a durable reaction callback must be async; \
+                 define it with `async def` or return an awaitable"
+            );
+        }
+        // Scheduled onto the loop captured at registration, since this thread
+        // has none of its own.
+        Ok(pyo3_async_runtimes::into_future_with_locals(
+            locals,
+            coroutine.clone(),
+        )?)
+    })?;
+    awaitable.await?;
+    Ok(())
 }
 
 #[async_trait]
@@ -439,6 +498,10 @@ impl Reaction for PythonReaction {
         self.base.get_auto_start()
     }
 
+    fn is_durable(&self) -> bool {
+        self.durable
+    }
+
     async fn initialize(&self, context: ReactionRuntimeContext) {
         self.base.initialize(context).await;
     }
@@ -449,11 +512,18 @@ impl Reaction for PythonReaction {
         let base = self.base.clone_shared();
         let callback = Arc::clone(&self.callback);
 
+        let locals = self.locals.clone();
         let task = tokio::spawn(async move {
             let result = base
                 .run_standard_loop(shutdown_rx, checkpoints, move |event| {
                     let callback = Arc::clone(&callback);
-                    async move { dispatch(&callback, &event) }
+                    let locals = locals.clone();
+                    async move {
+                        match locals {
+                            Some(locals) => dispatch_async(&callback, &locals, &event).await,
+                            None => dispatch(&callback, &event),
+                        }
+                    }
                 })
                 .await;
             if let Err(err) = result {
