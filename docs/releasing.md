@@ -84,6 +84,26 @@ If you go this route, register the pending publisher at
 <https://pypi.org/manage/account/publishing/> with the same four values above
 plus **PyPI Project Name** `drasi-lib`.
 
+### Organization roles do not grant project permissions
+
+This is the trap worth knowing about. An organization **Manager** can create a
+project but cannot manage it afterwards, because managing a specific project
+needs a **project role** — held as a collaborator — and an organization role
+does not confer one. The symptom is a greyed-out **Manage** button and a `403`
+on the project's settings URL, immediately after successfully creating it.
+
+Only an organization **Owner** can add project collaborators. Ask one to do
+either of these:
+
+- **Grant access**: **Your organizations** → **Manage** (Drasi) → **Projects**
+  → **Manage** on `drasi-lib` → **Collaborators** → add the maintainer with the
+  **Owner** role. They can then configure the trusted publisher themselves.
+- **Or just do it**: the Owner configures the trusted publisher directly, using
+  the values above. Nothing further is needed from anyone else.
+
+Deleting a project is also Owner-only, so a Manager cannot undo a mistaken
+creation either.
+
 ### If the organization's "Manage" button is greyed out
 
 The organization's **Projects** list is not the route to a project's settings.
