@@ -85,6 +85,16 @@ jobs:
             echo "BUILD_VENV_BIN=$PWD/.build-venv/bin" >> "$GITHUB_ENV"
           fi
 
+      - name: Raise the macOS deployment target for the x64 wheel
+        if: matrix.target == 'x86_64-apple-darwin'
+        run: echo "MACOSX_DEPLOYMENT_TARGET=10.13" >> "$GITHUB_ENV"
+        # maturin defaults this target to 10.12, but RocksDB is C++17 and its
+        # aligned new/delete needs 10.13 or newer, so the build fails with
+        # "aligned deallocation function ... is only available on macOS 10.13
+        # or newer". 10.13 is the lowest floor that compiles; verified by
+        # cross-building librocksdb-sys for this target. The arm64 wheel is
+        # untouched, since that target starts at 11.0 anyway.
+
       - name: Build abi3 release wheel
         shell: bash
         run: |
