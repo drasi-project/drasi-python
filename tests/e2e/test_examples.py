@@ -14,8 +14,8 @@
 
 """The examples must run, and the guide must describe the ones that exist.
 
-An example that no longer works is worse than no example, and this is the first
-thing anyone runs against a package that is not on PyPI yet.
+An example that no longer works is worse than no example, and this guide is
+what the published README points people at.
 """
 
 from __future__ import annotations
@@ -69,10 +69,37 @@ def test_the_guide_does_not_reference_files_that_were_removed() -> None:
     assert not missing, f"examples/README.md references missing files: {sorted(missing)}"
 
 
-def test_the_guide_does_not_promise_a_pypi_install() -> None:
-    """The package is not released yet; `pip install drasi-lib` would just fail."""
+def test_the_guide_does_not_claim_the_package_is_unpublished() -> None:
+    """`drasi-lib` is on PyPI, and this guide is what PyPI's own README links to.
+
+    This assertion used to be the exact opposite: it required the guide to say
+    "not published to pypi yet". That made the drift guard hold a claim in
+    place after it stopped being true, and the stale line shipped in 0.1.0's
+    own description. Pin the current fact, not the one that was true when the
+    test was written.
+    """
     guide = GUIDE.read_text(encoding="utf-8").lower()
-    assert "not published to pypi yet" in guide
+    for claim in ("not published to pypi", "not yet on pypi", "not released yet"):
+        assert claim not in guide, f"examples/README.md still claims: {claim!r}"
+
+
+def test_the_readme_has_no_relative_links() -> None:
+    """`README.md` is the distribution's `long_description`.
+
+    PyPI renders it at pypi.org, where a relative link resolves against
+    pypi.org and 404s. Links in this file have to be absolute to work in both
+    places, even though relative ones look fine on GitHub.
+    """
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    relative = re.findall(r"\]\((\.{0,2}/[^)]*)\)", readme)
+    assert not relative, f"README.md has links that break on PyPI: {relative}"
+
+
+def test_the_readme_tells_you_how_to_install_the_released_package() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8").lower()
+    assert "pip install drasi-lib" in readme
+    for claim in ("not published to pypi", "not yet on pypi", "once released"):
+        assert claim not in readme, f"README.md still claims: {claim!r}"
 
 
 def test_the_guide_only_invokes_tools_the_venv_actually_has() -> None:

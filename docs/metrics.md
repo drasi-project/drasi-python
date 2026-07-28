@@ -12,9 +12,9 @@ environments. They can also be distorted by mirrors, caching and repeated
 installs in build systems. Treat a sustained trend as meaningful; do not treat a
 single spike as proof of adoption.
 
-> `drasi-lib` is not published yet. As of 2026-07-27, the PyPI JSON endpoint
-> for `https://pypi.org/pypi/drasi-lib/json` returns `404`, so all commands
-> below are the checks to run once the first release lands.
+> The first release, `0.1.0`, was published on 2026-07-28, so there is very
+> little history yet. Expect the first weeks of numbers to be dominated by CI,
+> release validation and mirrors rather than by people.
 
 ## What to track
 

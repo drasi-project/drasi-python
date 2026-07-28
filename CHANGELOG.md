@@ -9,6 +9,23 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 Nothing yet.
 
+## [0.1.1] - 2026-07-28
+
+### Fixed
+
+- The published description told readers the package was not on PyPI. `README.md`
+  is the distribution's `long_description`, so 0.1.0's own project page carried
+  "Not published to PyPI yet. Build it from source", which is the first thing a
+  visitor reads. `README.md`, `examples/README.md` and `docs/metrics.md` now
+  describe the released package, and the install section gives
+  `pip install drasi-lib` with the supported platforms.
+- The examples drift guard asserted the guide *did* say "not published to pypi
+  yet", so it held the stale claim in place instead of catching it. It now
+  asserts the opposite for both READMEs.
+- Links in `README.md` were relative, so every one of them 404'd on the PyPI
+  project page, which resolves them against `pypi.org`. They are absolute now,
+  and a test keeps them that way.
+
 ## [0.1.0] - 2026-07-28
 
 First release to PyPI.

@@ -15,19 +15,20 @@ around Drasi's embeddable engine (`drasi-lib`) and its plugin host SDK
   events and component logs.
 - **A blocking API** — `drasi.sync.Drasi` for scripts and notebooks.
 
-> Status: pre-1.0, not yet on PyPI. The API is complete — full parity with
+> Status: pre-1.0. The API is complete — full parity with
 > `@drasi/lib` plus streaming as async iterators, a blocking facade, and
-> plugin lockfiles. See [`docs/api-audit.md`](./docs/api-audit.md).
+> plugin lockfiles. See [`docs/api-audit.md`](https://github.com/drasi-project/drasi-python/blob/main/docs/api-audit.md).
 
 ## Install
 
-> Not published to PyPI yet. Build it from source — see
-> [Development](#development), or [`examples/README.md`](./examples/README.md)
-> for a step-by-step walkthrough.
-
 ```bash
-pip install drasi-lib   # once released
+pip install drasi-lib
 ```
+
+Imported as `drasi`. Wheels are abi3 for Python 3.10+ on Linux (x86_64,
+aarch64), macOS (x86_64, arm64) and Windows (x86_64), so no Rust toolchain is
+needed. To build from source instead, see [Development](#development), or
+[`examples/README.md`](https://github.com/drasi-project/drasi-python/blob/main/examples/README.md) for a step-by-step walkthrough.
 
 ## Quickstart
 
@@ -124,7 +125,7 @@ handles this for you — it reads the registry index, picks the newest build who
 `sdk`/`core`/`lib` versions and target triple match this host, downloads it,
 optionally verifies its cosign signature, and loads it.
 
-See [`docs/plugins.md`](./docs/plugins.md).
+See [`docs/plugins.md`](https://github.com/drasi-project/drasi-python/blob/main/docs/plugins.md).
 
 ## Watching a query
 
@@ -173,13 +174,13 @@ await drasi.add_durable_python_reaction("sink", ["open"], handle)
 
 ## Status
 
-[`docs/api-audit.md`](./docs/api-audit.md) inventories the public API and
+[`docs/api-audit.md`](https://github.com/drasi-project/drasi-python/blob/main/docs/api-audit.md) inventories the public API and
 compares it against the Node.js bindings and the Rust engine. It is at full
 parity — 48/48 methods — plus 21 methods Node does not have.
 
 ## Examples
 
-Runnable programs are in [`examples/`](./examples), with a guide covering how to
+Runnable programs are in [`examples/`](https://github.com/drasi-project/drasi-python/tree/main/examples), with a guide covering how to
 build the package locally and run them:
 
 | Example | What it shows | Needs |
@@ -203,8 +204,8 @@ make test-oci    # download and install real plugins from ghcr.io
 ```
 
 Building requires a Rust toolchain. The optional `rocksdb` feature additionally
-requires `libclang` and a C++ toolchain. See [CONTRIBUTING.md](./CONTRIBUTING.md).
+requires `libclang` and a C++ toolchain. See [CONTRIBUTING.md](https://github.com/drasi-project/drasi-python/blob/main/CONTRIBUTING.md).
 
 ## License
 
-Apache-2.0. See [LICENSE](./LICENSE).
+Apache-2.0. See [LICENSE](https://github.com/drasi-project/drasi-python/blob/main/LICENSE).

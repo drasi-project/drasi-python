@@ -162,8 +162,8 @@ To rehearse without touching the real index, repeat the setup on
 3. Create and push a signed tag matching the package version:
 
    ```bash
-   git tag -s v0.1.0 -m "v0.1.0"
-   git push origin v0.1.0
+   git tag -s v0.1.1 -m "v0.1.1"
+   git push origin v0.1.1
    ```
 
 4. The release workflow should build abi3 wheels for the supported Linux,
@@ -173,20 +173,27 @@ To rehearse without touching the real index, repeat the setup on
 
 ## Verifying a release
 
-After PyPI publishing completes:
+After PyPI publishing completes. The interpreter must be 3.10 or newer — the
+wheels are abi3 with `requires-python >=3.10`, and a system `python3` that is
+older resolves nothing at all, with an error that mentions only the Python
+version:
 
 ```bash
-python -m venv .release-check
-.release-check/bin/python -m pip install --upgrade pip
-.release-check/bin/python -m pip install drasi-lib==0.1.0
+uv venv --python 3.12 .release-check
+uv pip install --python .release-check/bin/python drasi-lib==0.1.1
 .release-check/bin/python - <<'PY'
 import drasi
 
-assert drasi.__version__ == "0.1.0"
+assert drasi.__version__ == "0.1.1", drasi.__version__
+assert ".release-check" in drasi.__file__, f"import leaked from {drasi.__file__}"
 print(drasi.host_info())
 PY
 rm -rf .release-check
 ```
+
+The second assertion matters: run this from the repository root and the source
+tree can satisfy the import instead of the wheel, so the check passes without
+having tested the release at all.
 
 Also check that the GitHub release, PyPI file list and changelog all refer to
 the same version, and that at least one clean environment can import `drasi`.

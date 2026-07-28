@@ -2,9 +2,10 @@
 
 Runnable programs demonstrating `drasi-lib`.
 
-> `drasi-lib` is **not published to PyPI yet**, so `pip install drasi-lib` will not
-> work. These examples run against the code in this repository, which you build
-> locally in one step below.
+> These examples run against the code in **this repository**, not the released
+> package, so that what you are running is what you have changed. You build it
+> locally in one step below. If you only want to use Drasi rather than work on
+> it, `pip install drasi-lib` and skip to [the examples](#run-them).
 
 ## Build the local package
 
