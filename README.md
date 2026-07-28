@@ -123,6 +123,12 @@ optionally verifies its cosign signature, and loads it.
 
 See [`docs/plugins.md`](./docs/plugins.md).
 
+## Status
+
+[`docs/api-audit.md`](./docs/api-audit.md) inventories the public API, compares
+it against the Node.js bindings and the Rust engine, and lists the remaining
+gaps in priority order.
+
 ## Examples
 
 Runnable programs are in [`examples/`](./examples), with a guide covering how to
