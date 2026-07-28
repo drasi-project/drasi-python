@@ -231,3 +231,47 @@ jobs:
         with:
           packages-dir: dist
           attestations: true
+
+  # `docs/releasing.md` tells the releaser to check that the GitHub release,
+  # the PyPI file list and the changelog all agree, but nothing was creating
+  # the GitHub release, so that check could never pass without doing it by
+  # hand. Runs only after a successful publish, so a failed upload does not
+  # leave a release announcing files that are not there.
+  github-release:
+    name: Create the GitHub release
+    runs-on: ubuntu-24.04
+    needs: [publish]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Extract this version's changelog section
+        id: notes
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          python3 - "$version" <<'PY' > release-notes.md
+          import pathlib, re, sys
+
+          version = sys.argv[1]
+          text = pathlib.Path("CHANGELOG.md").read_text()
+          match = re.search(
+              rf"^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## \[|\Z)",
+              text,
+              re.S | re.M,
+          )
+          if match is None:
+              raise SystemExit(f"CHANGELOG.md has no section for {version}")
+          print(match.group(1).strip())
+          PY
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file release-notes.md \
+            --verify-tag \
+            --repo "$GITHUB_REPOSITORY"
