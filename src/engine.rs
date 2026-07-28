@@ -89,6 +89,8 @@ impl Inner {
     /// start has finished transitioning, trips a `debug_assert!` that surfaces
     /// as a hard panic. Registering with auto-start off and starting it
     /// ourselves in `start()` keeps both orderings working.
+    ///
+    /// Remove once drasi-project/drasi-core#639 ships.
     async fn register_query(&self, mut config: drasi_lib::config::QueryConfig) -> PyResult<()> {
         let defer = config.auto_start && !self.core.is_running().await;
         if defer {

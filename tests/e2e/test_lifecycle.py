@@ -91,6 +91,8 @@ async def test_a_query_added_before_start_runs_exactly_once() -> None:
     upstream `debug_assert!` as a hard panic whenever the first start had
     finished transitioning. The binding suppresses the premature start and
     starts the query itself, so both orderings behave the same.
+
+    Upstream: drasi-project/drasi-core#639.
     """
     drasi = await Drasi.create("t-add-then-start")
     try:
