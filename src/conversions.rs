@@ -137,6 +137,55 @@ pub fn json_to_py<'py>(py: Python<'py>, value: &Value) -> PyResult<Bound<'py, Py
     })
 }
 
+/// Converts a `serde_json::Value` into Python, rewriting object keys from
+/// camelCase to snake_case.
+///
+/// Some engine types serialise as camelCase (`#[serde(rename_all)]`), but the
+/// Python API is snake_case throughout. Only used for Drasi's own types —
+/// plugin configuration keys belong to the plugin and are passed through
+/// untouched.
+pub fn json_to_py_snake<'py>(py: Python<'py>, value: &Value) -> PyResult<Bound<'py, PyAny>> {
+    Ok(match value {
+        Value::Array(items) => {
+            let list = PyList::empty(py);
+            for item in items {
+                list.append(json_to_py_snake(py, item)?)?;
+            }
+            list.into_any()
+        }
+        Value::Object(entries) => {
+            let dict = PyDict::new(py);
+            for (key, item) in entries {
+                dict.set_item(camel_to_snake(key), json_to_py_snake(py, item)?)?;
+            }
+            dict.into_any()
+        }
+        scalar => json_to_py(py, scalar)?,
+    })
+}
+
+/// Rewrites `sourcesWithoutSchema` as `sources_without_schema`.
+///
+/// Leaves anything already snake_case, or containing separators the engine
+/// would not have produced, alone.
+pub fn camel_to_snake(key: &str) -> String {
+    if !key.chars().any(|c| c.is_ascii_uppercase()) {
+        return key.to_string();
+    }
+    let mut out = String::with_capacity(key.len() + 4);
+    for (index, ch) in key.chars().enumerate() {
+        if ch.is_ascii_uppercase() {
+            if index != 0 {
+                out.push('_');
+            }
+            out.push(ch.to_ascii_lowercase());
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
 /// The operation requested by a change, after alias normalisation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChangeOp {
@@ -318,6 +367,32 @@ mod tests {
             dict.set_item(key, value).unwrap();
         }
         dict.into_any()
+    }
+
+    #[test]
+    fn rewrites_camel_case_keys() {
+        assert_eq!(
+            camel_to_snake("sourcesWithoutSchema"),
+            "sources_without_schema"
+        );
+        assert_eq!(camel_to_snake("dataType"), "data_type");
+        assert_eq!(camel_to_snake("from"), "from");
+        assert_eq!(camel_to_snake("already_snake"), "already_snake");
+        assert_eq!(camel_to_snake(""), "");
+    }
+
+    #[test]
+    fn rewrites_keys_recursively_but_not_values() {
+        init();
+        Python::attach(|py| {
+            let value = json(r#"{"outerKey":[{"innerKey":"leftAlone"}]}"#);
+            let converted = json_to_py_snake(py, &value).unwrap();
+            let round_tripped = py_to_json(&converted).unwrap();
+            assert_eq!(
+                round_tripped,
+                json(r#"{"outer_key":[{"inner_key":"leftAlone"}]}"#)
+            );
+        });
     }
 
     #[test]

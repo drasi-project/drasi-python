@@ -31,7 +31,7 @@ use tokio::sync::Mutex;
 use crate::components::{
     BoxedReaction, BoxedSource, PythonReaction, PythonSource, SharedSource, StreamingReaction,
 };
-use crate::conversions::{json_to_py, py_to_json, source_change_from_py};
+use crate::conversions::{json_to_py, json_to_py_snake, py_to_json, source_change_from_py};
 use crate::errors::{engine_error, error, DrasiErrorCode};
 use crate::plugins::{self, LoadSummary, PluginHost, Resolved};
 use crate::stores::CreateOptions;
@@ -339,6 +339,137 @@ impl Drasi {
                 .into_iter()
                 .map(|(id, status)| (id, format!("{status:?}")))
                 .collect::<Vec<_>>())
+        })
+    }
+
+    // ------------------------------------------------------ metrics and schema
+
+    /// Output metrics for a query.
+    fn get_query_metrics<'py>(&self, py: Python<'py>, id: String) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let m = inner
+                .core
+                .get_query_output_metrics(&id)
+                .await
+                .map_err(engine_error)?;
+            Python::attach(|py| {
+                let out = PyDict::new(py);
+                out.set_item("outbox_size", m.outbox_size)?;
+                out.set_item("outbox_earliest_seq", m.outbox_earliest_seq)?;
+                out.set_item("outbox_latest_seq", m.outbox_latest_seq)?;
+                out.set_item("result_seq_advances", m.result_seq_advances)?;
+                out.set_item("live_results_count", m.live_results_count)?;
+                out.set_item(
+                    "outer_transaction_duration_ns_last",
+                    m.outer_transaction_duration_ns_last,
+                )?;
+                out.set_item(
+                    "outer_transaction_duration_ns_max",
+                    m.outer_transaction_duration_ns_max,
+                )?;
+                out.set_item("snapshot_fetch_count", m.snapshot_fetch_count)?;
+                Ok(out.unbind())
+            })
+        })
+    }
+
+    /// Metrics for a reaction, keyed by the query they relate to.
+    fn get_reaction_metrics<'py>(
+        &self,
+        py: Python<'py>,
+        id: String,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let metrics = inner
+                .core
+                .get_reaction_metrics(&id)
+                .await
+                .map_err(engine_error)?;
+            Python::attach(|py| {
+                let out = PyDict::new(py);
+                for (query_id, m) in metrics {
+                    let entry = PyDict::new(py);
+                    entry.set_item("checkpoint_sequence", m.checkpoint_sequence)?;
+                    entry.set_item("checkpoint_lag", m.checkpoint_lag)?;
+                    entry.set_item("dedup_skip_count", m.dedup_skip_count)?;
+                    entry.set_item("gap_detection_count", m.gap_detection_count)?;
+                    entry.set_item("recovery_strict_count", m.recovery_strict_count)?;
+                    entry.set_item("recovery_auto_reset_count", m.recovery_auto_reset_count)?;
+                    entry.set_item(
+                        "recovery_auto_skip_gap_count",
+                        m.recovery_auto_skip_gap_count,
+                    )?;
+                    entry.set_item("fetch_snapshot_count", m.fetch_snapshot_count)?;
+                    entry.set_item("fetch_outbox_count", m.fetch_outbox_count)?;
+                    out.set_item(query_id, entry)?;
+                }
+                Ok(out.unbind())
+            })
+        })
+    }
+
+    /// Engine-wide lifecycle metrics, mostly about durable-reaction recovery.
+    fn get_lifecycle_metrics<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let m = inner
+                .core
+                .get_lifecycle_metrics()
+                .await
+                .map_err(engine_error)?;
+            Python::attach(|py| {
+                let out = PyDict::new(py);
+                out.set_item(
+                    "startup_rejection_durable_no_store",
+                    m.startup_rejection_durable_no_store,
+                )?;
+                out.set_item(
+                    "startup_rejection_durable_on_volatile",
+                    m.startup_rejection_durable_on_volatile,
+                )?;
+                out.set_item(
+                    "startup_rejection_snapshot_skip_gap",
+                    m.startup_rejection_snapshot_skip_gap,
+                )?;
+                out.set_item(
+                    "startup_rejection_no_snapshot_auto_reset",
+                    m.startup_rejection_no_snapshot_auto_reset,
+                )?;
+                out.set_item("auto_reset_completions", m.auto_reset_completions)?;
+                out.set_item("hash_mismatch_count", m.hash_mismatch_count)?;
+                Ok(out.unbind())
+            })
+        })
+    }
+
+    /// The graph shape a source reports, if it describes one.
+    fn get_source_schema<'py>(&self, py: Python<'py>, id: String) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let schema = inner
+                .core
+                .get_source_schema(&id)
+                .await
+                .map_err(engine_error)?;
+            Python::attach(|py| match schema {
+                Some(schema) => {
+                    let value = serde_json::to_value(schema).map_err(engine_error)?;
+                    Ok(json_to_py_snake(py, &value)?.unbind())
+                }
+                None => Ok(py.None()),
+            })
+        })
+    }
+
+    /// The combined graph shape across every source.
+    fn get_graph_schema<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let schema = inner.core.get_graph_schema().await.map_err(engine_error)?;
+            let value = serde_json::to_value(schema).map_err(engine_error)?;
+            Python::attach(|py| Ok(json_to_py_snake(py, &value)?.unbind()))
         })
     }
 
@@ -1001,6 +1132,42 @@ impl Drasi {
         })
     }
 
+    /// Replaces a source's configuration in place.
+    ///
+    /// The engine takes a component rather than a config, so this rebuilds one
+    /// from the plugin descriptor. The id cannot change.
+    #[pyo3(signature = (kind, id, config = None, *, auto_start = true))]
+    fn update_source<'py>(
+        &self,
+        py: Python<'py>,
+        kind: String,
+        id: String,
+        config: Option<&Bound<'py, PyAny>>,
+        auto_start: bool,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let config = match config {
+            Some(value) => py_to_json(value)?,
+            None => serde_json::json!({}),
+        };
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let descriptor = inner
+                .plugins
+                .source_descriptor(&kind)
+                .await
+                .ok_or_else(|| unknown_kind(DrasiErrorCode::UnknownSourceKind, "source", &kind))?;
+            let source = descriptor
+                .create_source(&id, &config, auto_start)
+                .await
+                .map_err(engine_error)?;
+            inner
+                .core
+                .update_source(&id, BoxedSource(source))
+                .await
+                .map_err(engine_error)
+        })
+    }
+
     #[pyo3(signature = (id, *, cleanup = false))]
     fn remove_source<'py>(
         &self,
@@ -1034,11 +1201,60 @@ impl Drasi {
         })
     }
 
+    /// The current status of a source, such as `"Running"`.
+    fn get_source_status<'py>(&self, py: Python<'py>, id: String) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            inner
+                .core
+                .get_source_status(&id)
+                .await
+                .map(|status| format!("{status:?}"))
+                .map_err(engine_error)
+        })
+    }
+
     fn list_sources<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner();
         future_into_py(py, async move {
             let sources = inner.core.list_sources().await.map_err(engine_error)?;
             Ok(status_pairs(sources))
+        })
+    }
+
+    /// Replaces a reaction's configuration in place.
+    #[pyo3(signature = (kind, id, query_ids, config = None, *, auto_start = true))]
+    fn update_reaction<'py>(
+        &self,
+        py: Python<'py>,
+        kind: String,
+        id: String,
+        query_ids: Vec<String>,
+        config: Option<&Bound<'py, PyAny>>,
+        auto_start: bool,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let config = match config {
+            Some(value) => py_to_json(value)?,
+            None => serde_json::json!({}),
+        };
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let descriptor = inner
+                .plugins
+                .reaction_descriptor(&kind)
+                .await
+                .ok_or_else(|| {
+                    unknown_kind(DrasiErrorCode::UnknownReactionKind, "reaction", &kind)
+                })?;
+            let reaction = descriptor
+                .create_reaction(&id, query_ids, &config, auto_start)
+                .await
+                .map_err(engine_error)?;
+            inner
+                .core
+                .update_reaction(&id, BoxedReaction(reaction))
+                .await
+                .map_err(engine_error)
         })
     }
 
@@ -1070,6 +1286,19 @@ impl Drasi {
         let inner = self.inner();
         future_into_py(py, async move {
             inner.core.stop_reaction(&id).await.map_err(engine_error)
+        })
+    }
+
+    /// The current status of a reaction, such as `"Running"`.
+    fn get_reaction_status<'py>(&self, py: Python<'py>, id: String) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            inner
+                .core
+                .get_reaction_status(&id)
+                .await
+                .map(|status| format!("{status:?}"))
+                .map_err(engine_error)
         })
     }
 

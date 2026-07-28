@@ -155,6 +155,58 @@ class InstalledPlugin(ResolvedPlugin):
     verification: Literal["verified", "unsigned", "tampered"]
     loaded: bool
 
+class QueryMetrics(TypedDict):
+    outbox_size: int
+    outbox_earliest_seq: int
+    outbox_latest_seq: int
+    result_seq_advances: int
+    live_results_count: int
+    outer_transaction_duration_ns_last: int
+    outer_transaction_duration_ns_max: int
+    snapshot_fetch_count: int
+
+class ReactionQueryMetrics(TypedDict):
+    checkpoint_sequence: int
+    checkpoint_lag: int
+    dedup_skip_count: int
+    gap_detection_count: int
+    recovery_strict_count: int
+    recovery_auto_reset_count: int
+    recovery_auto_skip_gap_count: int
+    fetch_snapshot_count: int
+    fetch_outbox_count: int
+
+class LifecycleMetrics(TypedDict):
+    startup_rejection_durable_no_store: int
+    startup_rejection_durable_on_volatile: int
+    startup_rejection_snapshot_skip_gap: int
+    startup_rejection_no_snapshot_auto_reset: int
+    auto_reset_completions: int
+    hash_mismatch_count: int
+
+class PropertySchema(TypedDict, total=False):
+    name: str
+    data_type: str
+    description: str
+
+class NodeSchema(TypedDict):
+    label: str
+    properties: list[PropertySchema]
+
+class RelationSchema(TypedDict, total=False):
+    label: str
+    to: str
+    properties: list[PropertySchema]
+
+class SourceSchema(TypedDict):
+    nodes: list[NodeSchema]
+    relations: list[RelationSchema]
+
+class GraphSchema(TypedDict):
+    nodes: dict[str, Any]
+    relations: dict[str, Any]
+    sources_without_schema: list[str]
+
 class ConfigSchema(TypedDict):
     name: str
     schema: dict[str, Any]
@@ -255,7 +307,16 @@ class Drasi:
     def remove_source(self, id: str, *, cleanup: bool = False) -> Awaitable[None]: ...
     def start_source(self, id: str) -> Awaitable[None]: ...
     def stop_source(self, id: str) -> Awaitable[None]: ...
+    def get_source_status(self, id: str) -> Awaitable[str]: ...
     def list_sources(self) -> Awaitable[list[tuple[str, str]]]: ...
+    def update_source(
+        self,
+        kind: str,
+        id: str,
+        config: Mapping[str, Any] | None = None,
+        *,
+        auto_start: bool = True,
+    ) -> Awaitable[None]: ...
     def add_reaction(
         self,
         kind: str,
@@ -268,7 +329,24 @@ class Drasi:
     def remove_reaction(self, id: str, *, cleanup: bool = False) -> Awaitable[None]: ...
     def start_reaction(self, id: str) -> Awaitable[None]: ...
     def stop_reaction(self, id: str) -> Awaitable[None]: ...
+    def get_reaction_status(self, id: str) -> Awaitable[str]: ...
     def list_reactions(self) -> Awaitable[list[tuple[str, str]]]: ...
+    def update_reaction(
+        self,
+        kind: str,
+        id: str,
+        query_ids: Sequence[str],
+        config: Mapping[str, Any] | None = None,
+        *,
+        auto_start: bool = True,
+    ) -> Awaitable[None]: ...
+
+    # metrics and schema
+    def get_query_metrics(self, id: str) -> Awaitable[QueryMetrics]: ...
+    def get_reaction_metrics(self, id: str) -> Awaitable[dict[str, ReactionQueryMetrics]]: ...
+    def get_lifecycle_metrics(self) -> Awaitable[LifecycleMetrics]: ...
+    def get_source_schema(self, id: str) -> Awaitable[SourceSchema | None]: ...
+    def get_graph_schema(self) -> Awaitable[GraphSchema]: ...
 
     # streaming
     def query_results(
