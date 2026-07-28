@@ -81,6 +81,37 @@ async def test_an_engine_can_process_changes_after_stop_then_start() -> None:
         await drasi.close()
 
 
+async def test_a_query_added_before_start_runs_exactly_once() -> None:
+    """Registering a query before `start()` must leave it running, not in error.
+
+    `drasi-lib` 0.8.9 starts an auto-start query the moment it is added, with
+    no `is_running()` guard (`add_source` and `add_reaction` both have one), so
+    `start()` would start it a second time. That left the query reporting
+    `Error` ("already running") while it was in fact running, and tripped an
+    upstream `debug_assert!` as a hard panic whenever the first start had
+    finished transitioning. The binding suppresses the premature start and
+    starts the query itself, so both orderings behave the same.
+    """
+    drasi = await Drasi.create("t-add-then-start")
+    try:
+        await drasi.add_python_source("orders")
+        await drasi.add_query("q", "MATCH (o:Order) RETURN o.id AS id", ["orders"])
+
+        assert await drasi.get_query_status("q") == "Added"
+
+        await drasi.start()
+        await wait_for_query_running(drasi, "q")
+        assert await drasi.get_query_status("q") == "Running"
+
+        await drasi.push_change(
+            "orders",
+            {"op": "insert", "id": "o1", "labels": ["Order"], "properties": {"id": "o1"}},
+        )
+        assert await wait_for_rows(drasi, "q") == [{"id": "o1"}]
+    finally:
+        await drasi.close()
+
+
 async def test_close_is_idempotent_but_start_after_close_is_rejected() -> None:
     drasi = await Drasi.create("t-close-twice")
     await drasi.start()

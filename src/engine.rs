@@ -57,6 +57,12 @@ pub struct Inner {
     /// Set by `close`. The engine refuses `start` once shut down, but would
     /// otherwise still accept components that could never run.
     closed: AtomicBool,
+    /// Queries registered while the engine was stopped, whose auto-start was
+    /// suppressed. `drasi-lib` 0.8.9 starts an auto-start query the moment it
+    /// is added, without the `is_running()` guard that `add_source` and
+    /// `add_reaction` both apply, so `start()` would then start it a second
+    /// time. See `add_query`.
+    deferred_queries: Mutex<Vec<String>>,
 }
 
 impl Inner {
@@ -72,6 +78,76 @@ impl Inner {
             ));
         }
         Ok(())
+    }
+
+    /// Registers a query, suppressing the premature start in `drasi-lib` 0.8.9.
+    ///
+    /// `add_query` there starts an auto-start query immediately even when the
+    /// engine is stopped, unlike `add_source` and `add_reaction`, which both
+    /// gate on `is_running()`. `start()` then starts it a second time, which
+    /// leaves the query marked `Error` ("already running") and, when the first
+    /// start has finished transitioning, trips a `debug_assert!` that surfaces
+    /// as a hard panic. Registering with auto-start off and starting it
+    /// ourselves in `start()` keeps both orderings working.
+    async fn register_query(&self, mut config: drasi_lib::config::QueryConfig) -> PyResult<()> {
+        let defer = config.auto_start && !self.core.is_running().await;
+        if defer {
+            config.auto_start = false;
+        }
+        let id = config.id.clone();
+        self.core.add_query(config).await.map_err(engine_error)?;
+        self.note_deferred(&id, defer).await;
+        Ok(())
+    }
+
+    /// Replaces a query definition, applying the same suppression as
+    /// `register_query`, because `update_query` restarts the query too.
+    async fn reconfigure_query(
+        &self,
+        id: &str,
+        mut config: drasi_lib::config::QueryConfig,
+    ) -> PyResult<()> {
+        let defer = config.auto_start && !self.core.is_running().await;
+        if defer {
+            config.auto_start = false;
+        }
+        self.core
+            .update_query(id, config)
+            .await
+            .map_err(engine_error)?;
+        self.note_deferred(id, defer).await;
+        Ok(())
+    }
+
+    async fn note_deferred(&self, id: &str, defer: bool) {
+        let mut deferred = self.deferred_queries.lock().await;
+        match (defer, deferred.iter().any(|held| held == id)) {
+            (true, false) => deferred.push(id.to_string()),
+            (false, true) => deferred.retain(|held| held != id),
+            _ => {}
+        }
+    }
+
+    /// Starts the queries whose auto-start `register_query` suppressed.
+    ///
+    /// Kept across restarts, because their stored config says auto-start is
+    /// off and `start_all` would skip them on every later `start()`.
+    async fn start_deferred_queries(&self) -> PyResult<()> {
+        let ids = self.deferred_queries.lock().await.clone();
+        for id in ids {
+            let already_running = matches!(
+                self.core.get_query_status(&id).await,
+                Ok(ComponentStatus::Running)
+            );
+            if !already_running {
+                self.core.start_query(&id).await.map_err(engine_error)?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn forget_deferred_query(&self, id: &str) {
+        self.deferred_queries.lock().await.retain(|held| held != id);
     }
 
     fn next_stream_id(&self) -> u64 {
@@ -158,6 +234,7 @@ impl Drasi {
                     stream_counter: AtomicU64::new(0),
                     durable_capable,
                     closed: AtomicBool::new(false),
+                    deferred_queries: Mutex::new(Vec::new()),
                 }),
             })
         })
@@ -234,6 +311,7 @@ impl Drasi {
                     stream_counter: AtomicU64::new(0),
                     durable_capable,
                     closed: AtomicBool::new(false),
+                    deferred_queries: Mutex::new(Vec::new()),
                 }),
             };
             let inner = Arc::clone(&drasi.inner);
@@ -312,10 +390,10 @@ impl Drasi {
     /// Starts the engine and every component that is configured to auto-start.
     fn start<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner();
-        future_into_py(
-            py,
-            async move { inner.core.start().await.map_err(engine_error) },
-        )
+        future_into_py(py, async move {
+            inner.core.start().await.map_err(engine_error)?;
+            inner.start_deferred_queries().await
+        })
     }
 
     /// Stops the engine, leaving its components in place.
@@ -412,9 +490,7 @@ impl Drasi {
         )?;
         let inner = self.inner();
         inner.ensure_open()?;
-        future_into_py(py, async move {
-            inner.core.add_query(config).await.map_err(engine_error)
-        })
+        future_into_py(py, async move { inner.register_query(config).await })
     }
 
     /// Replaces the definition of an existing query.
@@ -459,20 +535,19 @@ impl Drasi {
         )?;
         let inner = self.inner();
         inner.ensure_open()?;
-        future_into_py(py, async move {
-            inner
-                .core
-                .update_query(&id, config)
-                .await
-                .map_err(engine_error)
-        })
+        future_into_py(
+            py,
+            async move { inner.reconfigure_query(&id, config).await },
+        )
     }
 
     fn remove_query<'py>(&self, py: Python<'py>, id: String) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner();
         inner.ensure_open()?;
         future_into_py(py, async move {
-            inner.core.remove_query(&id).await.map_err(engine_error)
+            inner.core.remove_query(&id).await.map_err(engine_error)?;
+            inner.forget_deferred_query(&id).await;
+            Ok(())
         })
     }
 
