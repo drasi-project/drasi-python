@@ -33,6 +33,7 @@ from .helpers import wait_for_at_least_rows, wait_for_query_running
 
 pytestmark = pytest.mark.plugins
 
+LIBRARY_SUFFIXES = {".so", ".dylib", ".dll"}
 COUNTER_QUERY = "MATCH (c:Counter) RETURN c.value AS value"
 MOCK_CONFIG: dict[str, Any] = {"dataType": {"type": "counter"}, "intervalMs": 50}
 
@@ -40,7 +41,7 @@ MOCK_CONFIG: dict[str, Any] = {"dataType": {"type": "counter"}, "intervalMs": 50
 @pytest.fixture(scope="session")
 def plugin_dir() -> Path:
     directory = Path(__file__).resolve().parents[2] / "plugins"
-    binaries = [path for path in directory.glob("*") if path.suffix in {".so", ".dylib", ".dll"}]
+    binaries = [path for path in directory.glob("*") if path.suffix in LIBRARY_SUFFIXES]
     if not binaries:
         pytest.skip("run `python scripts/build_plugins.py` to build the test plugins")
     return directory
@@ -178,11 +179,20 @@ async def test_a_plugin_type_that_does_not_exist_yet_is_still_discovered(
     that future type; it loads, while a library outside the naming convention
     does not and is counted.
     """
-    source = next(path for path in plugin_dir.glob("libdrasi_source_*"))
+    # Windows builds the same plugin as `drasi_source_mock.dll`, with no `lib`
+    # prefix, so the prefix is taken from the file that is actually there rather
+    # than assumed - the assumption this whole area keeps tripping over.
+    source = next(
+        (path for path in plugin_dir.glob("*drasi_source_*") if path.suffix in LIBRARY_SUFFIXES),
+        None,
+    )
+    assert source is not None, f"no source plugin binary in {plugin_dir}"
+
+    prefix = "lib" if source.name.startswith("lib") else ""
     suffix = source.suffix
-    shutil.copy(source, tmp_path / f"libdrasi_indexbackend_future{suffix}")
-    shutil.copy(source, tmp_path / f"libdrasi_secret-store_legacy{suffix}")
-    shutil.copy(source, tmp_path / f"libunrelated_thing{suffix}")
+    shutil.copy(source, tmp_path / f"{prefix}drasi_indexbackend_future{suffix}")
+    shutil.copy(source, tmp_path / f"{prefix}drasi_secret-store_legacy{suffix}")
+    shutil.copy(source, tmp_path / f"unrelated_thing{suffix}")
 
     summary = await engine.load_plugins(tmp_path)
 
