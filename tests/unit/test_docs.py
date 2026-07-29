@@ -86,3 +86,31 @@ def test_the_site_declares_the_right_repository() -> None:
     config = (WEBSITE / "config.toml").read_text(encoding="utf-8")
     assert "drasi-project.github.io/drasi-python/" in config
     assert "drasi-nodejs" not in config, "config still points at the Node.js repository"
+
+
+def _hugo_build_settings(workflow: str) -> dict[str, str]:
+    """Pulls the settings both site builds have to agree on."""
+    text = (ROOT / ".github" / "workflows" / workflow).read_text(encoding="utf-8")
+    hugo = re.search(r"HUGO_VERSION:\s*(\S+)", text)
+    node = re.search(r'node-version:\s*"?([\d.]+)"?', text)
+    action = re.search(r"uses:\s*(peaceiris/actions-hugo@\S+)", text)
+    assert hugo and node and action, f"{workflow} no longer pins the site build"
+    return {"hugo": hugo.group(1), "node": node.group(1), "action": action.group(1)}
+
+
+def test_both_workflows_build_the_site_the_same_way() -> None:
+    """CI builds the site and the deploy workflow publishes it.
+
+    Two copies of the same build is the price of making the site a check
+    everywhere rather than only when `website/` changes. They are only useful
+    if they agree, and a version that drifts would mean CI passing on a build
+    that is not the one being published.
+    """
+    assert _hugo_build_settings("ci.yml") == _hugo_build_settings("website.yml")
+
+
+def test_the_link_checker_matches_the_published_base_path() -> None:
+    """A wrong prefix would make every internal link look external, and pass."""
+    checker = (ROOT / "scripts" / "check_site_links.py").read_text(encoding="utf-8")
+    prefix = re.search(r'PREFIX = "([^"]+)"', checker)
+    assert prefix and prefix.group(1) == "/drasi-python/"

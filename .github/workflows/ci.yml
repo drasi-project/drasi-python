@@ -438,3 +438,43 @@ jobs:
           cargo llvm-cov --lib \
             --ignore-filename-regex '(engine|components|plugins|host|runtime|lib|stores|streams)\.rs$' \
             --fail-under-lines 80
+
+  # The deploy workflow only builds when `website/` changes, so on its own a
+  # commit that breaks the site elsewhere - a renamed script, a changed stub
+  # that leaves the API page stale - reaches `main` before anyone finds out.
+  # Building here makes the site a check like any other.
+  docs:
+    name: Docs site
+    runs-on: ubuntu-24.04
+    env:
+      # Keep in step with .github/workflows/website.yml; tests/unit/test_docs.py
+      # fails if the two drift.
+      HUGO_VERSION: 0.152.2
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: peaceiris/actions-hugo@v3
+        with:
+          hugo-version: ${{ env.HUGO_VERSION }}
+          extended: true
+
+      - name: Install site and theme dependencies
+        working-directory: website
+        run: |
+          npm install
+          npm --prefix themes/docsy install
+
+      - name: Build
+        working-directory: website
+        run: hugo --gc --minify --baseURL "https://drasi-project.github.io/drasi-python/"
+
+      # Checks the HTML Hugo produced, so it also covers links the theme
+      # generates rather than only the ones written in Markdown.
+      - name: Check for broken internal links
+        run: python3 scripts/check_site_links.py
