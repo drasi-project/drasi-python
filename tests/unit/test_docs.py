@@ -25,7 +25,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 import drasi
+
+pytestmark = pytest.mark.docs
 
 ROOT = Path(__file__).resolve().parents[2]
 WEBSITE = ROOT / "website"

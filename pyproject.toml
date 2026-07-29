@@ -63,6 +63,7 @@ markers = [
     "plugins: requires locally built cdylib plugins (scripts/build_plugins.py)",
     "oci: requires network access to ghcr.io",
     "docker: requires a running Docker daemon",
+    "docs: checks the repository against itself rather than the installed package",
 ]
 
 [tool.ruff]

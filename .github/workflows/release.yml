@@ -179,7 +179,10 @@ jobs:
               raise SystemExit(f"smoke test imported the source tree: {module}")
           print(f"smoke test imported installed wheel: {module}")
           PY
-          "$SMOKE_VENV_BIN/pytest" -m "not plugins and not oci and not docker" -v
+          # `docs` is excluded rather than left to skip itself: those tests read
+          # website/ and .github/, which this tree deliberately does not contain,
+          # and they check the repository against itself rather than the wheel.
+          "$SMOKE_VENV_BIN/pytest" -m "not plugins and not oci and not docker and not docs" -v
 
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v4

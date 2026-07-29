@@ -205,6 +205,15 @@ jobs:
         run: |
           "$PYTEST" -m "not plugins and not oci and not docker" -v
 
+      # The release workflow runs the suite in a scratch tree holding only part
+      # of the repository, so a test reading anything outside it passes here and
+      # then fails mid-release. Replay that tree now instead of at tag time.
+      - name: Release smoke test would pass
+        if: matrix.os == 'ubuntu-24.04' && matrix.python == '3.12'
+        shell: bash
+        run: |
+          "$PY" scripts/check_release_smoke.py
+
   local-plugins:
     name: Local plugins (${{ matrix.os }}, py3.12)
     runs-on: ${{ matrix.os }}
