@@ -14,8 +14,7 @@ You need Docker and network access to `ghcr.io`.
 
 ## The database
 
-Drasi's Postgres source reads the write-ahead log, which only carries row data at the
-`logical` level:
+Start Postgres configured for logical replication:
 
 ```bash
 docker run -d --name drasi-demo-pg \
@@ -24,7 +23,8 @@ docker run -d --name drasi-demo-pg \
   postgres -c wal_level=logical -c max_replication_slots=8 -c max_wal_senders=8
 ```
 
-Two details in the schema are Drasi's business rather than ordinary design:
+Create the table, along with the publication the source replicates from and the replica
+identity that makes Postgres include the old row in updates and deletes:
 
 ```sql
 CREATE TABLE orders (
@@ -37,11 +37,6 @@ CREATE TABLE orders (
 ALTER TABLE orders REPLICA IDENTITY FULL;
 CREATE PUBLICATION drasi_publication FOR TABLE orders;
 ```
-
-`REPLICA IDENTITY FULL` makes Postgres include the old row in updates and deletes, so a
-query can tell you what changed rather than only what it changed to. The publication is
-what the source replicates from. Both are Postgres-side replication setup — the source
-plugin's own documentation is what specifies them.
 
 ## The program
 
@@ -135,17 +130,6 @@ asyncio.run(main())
 
 Open <http://localhost:3000> and the table is already populated.
 
-## Why bootstrap matters here
-
-The source is pure change data capture: it streams the write-ahead log from the point
-its replication slot was created, so rows written *before* that are invisible to it. A
-query over a table with a million rows in it would start empty and stay wrong.
-
-The `bootstrap=` argument attaches a bootstrap provider, which loads the current
-contents when the query subscribes; the change feed takes over from there. Leave it out
-and the dashboard starts blank, filling in only as rows happen to be touched — which
-looks like the source losing data.
-
 ## Watch it update
 
 ```bash
@@ -170,4 +154,5 @@ docker rm -f drasi-demo-pg
 ## Next
 
 - [Plugins](../../guides/plugins/) — pinning versions, verifying signatures, lockfiles.
-- [Concepts](../../concepts/) — how sources, queries and reactions fit together.
+- [Concepts](../../concepts/) — how sources, queries and reactions fit together,
+  including [bootstrap](../../concepts/#bootstrap).
