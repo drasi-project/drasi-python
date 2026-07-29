@@ -8,8 +8,8 @@ description: >
 
 Drasi's sources, reactions, bootstrap providers, secret stores and identity providers
 are **plugins**: self-contained native libraries (`.so`, `.dylib`, `.dll`) that this
-host loads at runtime, exactly as `drasi-server` does. All five types can be used from
-Python. That means a Python application
+host loads at runtime, exactly as `drasi-server` does. All five types can be loaded and
+selected from Python. That means a Python application
 can follow Postgres, Kafka or Kubernetes without anyone writing Python bindings for
 each one.
 
@@ -233,6 +233,11 @@ drasi = await Drasi.create(
 through its builder, which runs before anything could call `install_plugin`, so the
 plugin has to be on disk when `create` is called. Download it ahead of time with
 `install_plugin(..., load=False, directory=...)`, or ship it in your image.
+
+Whether the credentials are then *used* is up to the component: a source or reaction
+asks its identity provider only if it authenticates that way. Of the published sources,
+`dataverse` does; `postgres` and the rest take their credentials from their own
+configuration, so giving one an identity provider changes nothing.
 
 ## Next
 

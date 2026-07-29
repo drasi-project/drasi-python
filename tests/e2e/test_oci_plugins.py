@@ -359,6 +359,12 @@ async def test_an_identity_plugin_can_be_selected_at_creation(
     The builder runs before any plugin could be loaded, which is why an
     `identity/*` plugin used to be installable and impossible to select. The
     plugin is now loaded from `plugins_dir` before the engine is built.
+
+    This covers selection, not consumption: whether a component then asks for
+    credentials is up to that component, and of the published sources only
+    `dataverse` does, which needs a Dataverse instance to exercise. Measured
+    with the test fixture's own call counter, a postgres source served zero
+    `get_credentials` calls and authenticated as its configured user.
     """
     await engine.install_plugin("identity/test", directory=tmp_path, load=False)
 
