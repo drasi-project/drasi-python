@@ -161,3 +161,32 @@ async def test_plugins_from_two_directories_accumulate(
     kinds = await engine.plugin_kinds()
     assert kinds["sources"] == ["mock"]
     assert kinds["reactions"] == ["log"]
+
+
+async def test_a_plugin_type_that_does_not_exist_yet_is_still_discovered(
+    engine: Drasi, plugin_dir: Path, tmp_path: Path
+) -> None:
+    """Discovery matches the `drasi_` prefix, not a list of plugin types.
+
+    Enumerating types is what went wrong: the host SDK's defaults name source,
+    reaction and bootstrap, so secret store and identity plugins were skipped
+    without a word, and a type added later would go the same way. The plugin SDK
+    already defines an index backend descriptor with no loader collection, so
+    "later" is not hypothetical.
+
+    A real plugin binary under a type name that does not exist stands in for
+    that future type; it loads, while a library outside the naming convention
+    does not and is counted.
+    """
+    source = next(path for path in plugin_dir.glob("libdrasi_source_*"))
+    suffix = source.suffix
+    shutil.copy(source, tmp_path / f"libdrasi_indexbackend_future{suffix}")
+    shutil.copy(source, tmp_path / f"libdrasi_secret-store_legacy{suffix}")
+    shutil.copy(source, tmp_path / f"libunrelated_thing{suffix}")
+
+    summary = await engine.load_plugins(tmp_path)
+
+    # The future type and the older hyphenated spelling both load; the library
+    # that does not follow the convention is reported rather than ignored.
+    assert summary["plugins"] == 2, summary
+    assert summary["skipped"] == 1, summary

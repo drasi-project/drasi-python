@@ -56,31 +56,21 @@ pub const DEFAULT_REGISTRY: &str = "ghcr.io/drasi-project";
 
 /// Filenames treated as plugins when scanning a directory.
 ///
-/// The host SDK's `DEFAULT_PLUGIN_FILE_PATTERNS` covers only sources, reactions
-/// and bootstrap providers, so a directory holding
-/// `libdrasi_secret-store_file.dylib` or `libdrasi_identity_azure.dylib` loads
-/// neither - with no error, because a file that matches nothing is simply not a
-/// plugin as far as the scan is concerned. Reported upstream as
-/// drasi-project/drasi-core#661; drop this once the SDK default covers all five
-/// types.
+/// Matched on the plugin prefix alone rather than on each plugin type, because
+/// enumerating types is what went wrong: the host SDK's default lists source,
+/// reaction and bootstrap, so secret store and identity plugins were skipped in
+/// silence, and any type added later would be skipped the same way. Anchoring on
+/// `drasi_` costs nothing and needs no edit when a sixth type arrives -
+/// `IndexBackendPluginDescriptor` already exists in the plugin SDK without a
+/// loader collection.
 ///
-/// The hyphenated spellings are kept because an earlier version of
-/// `plugin_file_name` wrote `libdrasi_secret-store_file`, so a directory
-/// populated by it would otherwise stop loading.
-const PLUGIN_FILE_PATTERNS: &[&str] = &[
-    "libdrasi_source_*",
-    "libdrasi_reaction_*",
-    "libdrasi_bootstrap_*",
-    "libdrasi_secret-store_*",
-    "libdrasi_secret_store_*",
-    "libdrasi_identity_*",
-    "drasi_source_*",
-    "drasi_reaction_*",
-    "drasi_bootstrap_*",
-    "drasi_secret-store_*",
-    "drasi_secret_store_*",
-    "drasi_identity_*",
-];
+/// This is a filter, not the decision. A matched file still has to export
+/// `drasi_plugin_metadata()`; one that does not is logged and passed over, so
+/// being generous here cannot load something that is not a plugin.
+///
+/// The SDK's matcher supports a trailing or embedded `*` but not a leading one,
+/// so these have to be prefixes. Upstream: drasi-project/drasi-core#661.
+const PLUGIN_FILE_PATTERNS: &[&str] = &["libdrasi_*", "drasi_*"];
 
 /// Counts returned after scanning a directory.
 #[derive(Debug, Default, Clone, Copy)]

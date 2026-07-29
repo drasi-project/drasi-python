@@ -150,6 +150,12 @@ print(summary["sources"], summary["reactions"], summary["bootstrap"])
 
 `watch_plugins(directory)` keeps watching, picking up plugins added later.
 
+A file is treated as a plugin if its name begins with `drasi_` or `libdrasi_`
+and it exports the plugin entry point; the name is a filter, the entry point is
+the decision. Shared libraries in the directory that were not loaded are
+reported as `skipped`, so a plugin that is present but unrecognised shows up as
+a number rather than as nothing at all.
+
 ## Plugin configuration
 
 Configuration keys belong to the plugin, not to this library, so they are passed

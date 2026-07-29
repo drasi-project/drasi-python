@@ -35,8 +35,12 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   so `libdrasi_secret-store_file.dylib` and `libdrasi_identity_test.dylib`
   matched nothing and were not loaded, with no error: a file matching no pattern
   simply is not a plugin as far as the scan is concerned. A directory holding
-  three plugins reported one. This binding now supplies its own patterns
-  covering all five types. Reported upstream as drasi-project/drasi-core#661.
+  three plugins reported one. Discovery now matches the `drasi_` prefix rather
+  than a list of plugin types, so a type added later is found without a code
+  change - the plugin SDK already defines an index backend descriptor that the
+  loader does not yet surface. A matched file still has to export
+  `drasi_plugin_metadata()`, so matching more broadly cannot load something that
+  is not a plugin. Reported upstream as drasi-project/drasi-core#661.
 - Installed plugin files were named after the plugin type verbatim, so
   `secret-store/file` was written as `libdrasi_secret-store_file.dylib`. Rust
   turns a hyphen in a crate name into an underscore when it names the cdylib, so
