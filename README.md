@@ -72,19 +72,6 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-Three things that are easy to get wrong:
-
-- Call `start()` **first**, then add components; they auto-start individually.
-  Adding everything and then calling `start()` also works, but logs a spurious
-  "already running" error for each component.
-- Drasi's Cypher dialect uses **single-quoted** string literals.
-- A change's `id` is the graph **key**, not a property. A query selecting `o.id`
-  reads a property of that name, so emit it explicitly.
-
-`add_query` returns once the query is provisioned; it finishes starting in the
-background, so reading results immediately can raise "is not running". Await
-`wait_for_query(id)` if you need to read straight away.
-
 ## Using a plugin
 
 `install_plugin()` resolves the build that is compatible with your machine,
