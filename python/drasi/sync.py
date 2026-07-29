@@ -167,6 +167,7 @@ class Drasi:
         state_store: StateStore | None = None,
         index_store: IndexStore | None = None,
         identity: Identity | None = None,
+        plugins_dir: StrPath | None = None,
     ) -> Drasi:
         return Drasi(
             _Loop.run(
@@ -176,6 +177,7 @@ class Drasi:
                     state_store=state_store,
                     index_store=index_store,
                     identity=identity,
+                    plugins_dir=plugins_dir,
                 )
             )
         )

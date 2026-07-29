@@ -102,6 +102,7 @@ class Drasi:
         state_store: StateStore | None = None,
         index_store: IndexStore | None = None,
         identity: Identity | None = None,
+        plugins_dir: StrPath | None = None,
     ) -> Awaitable[Drasi]: ...
     async def __aenter__(self) -> Drasi: ...
     async def __aexit__(

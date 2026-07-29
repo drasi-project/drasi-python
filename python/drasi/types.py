@@ -102,9 +102,16 @@ class IndexStore(TypedDict, total=False):
 
 
 class Identity(TypedDict, total=False):
-    """Credentials handed to plugins that ask for them."""
+    """Credentials handed to plugins that ask for them.
 
-    kind: Literal["password", "token"]
+    `password` and `token` are built into the engine. Any other `kind` names an
+    `identity/*` plugin, whose remaining keys are that plugin's own
+    configuration, so this is deliberately not restricted to a fixed set.
+    Selecting a plugin kind needs `plugins_dir` on `create`, because an identity
+    provider has to exist before the engine is built.
+    """
+
+    kind: str
     username: str
     password: str
     token: str

@@ -57,6 +57,10 @@ pub struct Inner {
     /// Set by `close`. The engine refuses `start` once shut down, but would
     /// otherwise still accept components that could never run.
     closed: AtomicBool,
+    /// Holds the library an identity plugin came from. The provider handed to
+    /// the builder points into it, so dropping this would dangle.
+    #[allow(dead_code)]
+    identity_host: Option<Arc<PluginHost>>,
     /// Queries registered while the engine was stopped, whose auto-start was
     /// suppressed. `drasi-lib` 0.8.9 starts an auto-start query the moment it
     /// is added, without the `is_running()` guard that `add_source` and
@@ -238,7 +242,10 @@ impl Drasi {
     /// persists plugin state, `index_store` persists query indexes, and
     /// `identity` supplies credentials to plugins that ask for them.
     #[staticmethod]
-    #[pyo3(signature = (id, *, secrets = None, state_store = None, index_store = None, identity = None))]
+    #[pyo3(signature = (
+        id, *, secrets = None, state_store = None, index_store = None, identity = None,
+        plugins_dir = None,
+    ))]
     fn create<'py>(
         py: Python<'py>,
         id: String,
@@ -246,17 +253,55 @@ impl Drasi {
         state_store: Option<&Bound<'py, PyAny>>,
         index_store: Option<&Bound<'py, PyAny>>,
         identity: Option<&Bound<'py, PyAny>>,
+        plugins_dir: Option<PathBuf>,
     ) -> PyResult<Bound<'py, PyAny>> {
         // Parse eagerly so a malformed option raises before the caller awaits.
         let options = CreateOptions::parse(secrets, state_store, index_store, identity)?;
         let durable_capable = options.has_state_store();
+        let wanted_identity = options.identity_plugin();
+        // The identity plugin's own configuration may reference a secret, so the
+        // headless host gets the same mapping the engine will use.
+        let identity_secrets = options.secrets.clone();
 
         future_into_py(py, async move {
+            // An identity provider can only reach the engine through the
+            // builder, which runs before any plugin could be loaded. When one is
+            // asked for by kind, load it here, from a host kept alive for the
+            // engine's lifetime so the provider's function pointers stay valid.
+            let (identity_host, identity_provider) = match wanted_identity {
+                Some((kind, config)) => {
+                    // An unknown kind stays an unknown kind: the common case
+                    // is a typo, not a missing plugin directory.
+                    let dir = plugins_dir.clone().ok_or_else(|| {
+                        error(
+                            DrasiErrorCode::UnknownIdentityKind,
+                            format!(
+                                "unknown identity kind '{kind}'; the built-in kinds are \
+                                 'password' and 'token', and a kind provided by an \
+                                 identity plugin needs plugins_dir= on create()"
+                            ),
+                        )
+                    })?;
+                    let host = Arc::new(PluginHost::new(identity_secrets));
+                    host.load_dir_headless(&dir).await.map_err(plugin_error)?;
+                    let descriptor = host.identity_descriptor(&kind).await.ok_or_else(|| {
+                        unknown_kind(DrasiErrorCode::UnknownIdentityKind, "identity", &kind)
+                    })?;
+                    let provider = descriptor
+                        .create_identity_provider(&config)
+                        .await
+                        .map_err(engine_error)?;
+                    (Some(host), Some(Arc::from(provider)))
+                }
+                None => (None, None),
+            };
+
             let (builder, secrets) = options
-                .apply(DrasiLib::builder().with_id(id.clone()))
+                .apply(DrasiLib::builder().with_id(id.clone()), identity_provider)
                 .await?;
             let core = builder.build().await.map_err(engine_error)?;
-            Ok(Drasi {
+
+            let drasi = Drasi {
                 inner: Arc::new(Inner {
                     id,
                     core,
@@ -267,8 +312,23 @@ impl Drasi {
                     durable_capable,
                     closed: AtomicBool::new(false),
                     deferred_queries: Mutex::new(Vec::new()),
+                    identity_host,
                 }),
-            })
+            };
+
+            // The same directory is loaded again into the engine's own host, so
+            // that anything else in it gets the log and lifecycle callbacks the
+            // headless load above deliberately withholds.
+            if let Some(dir) = plugins_dir {
+                let inner = Arc::clone(&drasi.inner);
+                inner
+                    .plugins
+                    .load_dir(&inner.core, &inner.id, &dir, None)
+                    .await
+                    .map_err(plugin_error)?;
+            }
+
+            Ok(drasi)
         })
     }
 
@@ -330,7 +390,7 @@ impl Drasi {
 
         future_into_py(py, async move {
             let (builder, secrets) = options
-                .apply(DrasiLib::builder().with_id(id.clone()))
+                .apply(DrasiLib::builder().with_id(id.clone()), None)
                 .await?;
             let core = builder.build().await.map_err(engine_error)?;
             let drasi = Drasi {
@@ -344,6 +404,7 @@ impl Drasi {
                     durable_capable,
                     closed: AtomicBool::new(false),
                     deferred_queries: Mutex::new(Vec::new()),
+                    identity_host: None,
                 }),
             };
             let inner = Arc::clone(&drasi.inner);

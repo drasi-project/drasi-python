@@ -29,7 +29,7 @@ from what the package exposes.
 | --- | --- |
 | `id` _(property)_ | `str` |
 | `from_config(config: Mapping[str, Any])` _(static)_ | `Awaitable[Drasi]` |
-| `create(id: str, *, secrets: Mapping[str, str] \| None = None, state_store: StateStore \| None = None, index_store: IndexStore \| None = None, identity: Identity \| None = None)` _(static)_ | `Awaitable[Drasi]` |
+| `create(id: str, *, secrets: Mapping[str, str] \| None = None, state_store: StateStore \| None = None, index_store: IndexStore \| None = None, identity: Identity \| None = None, plugins_dir: StrPath \| None = None)` _(static)_ | `Awaitable[Drasi]` |
 
 ### Lifecycle
 

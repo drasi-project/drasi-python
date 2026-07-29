@@ -52,8 +52,19 @@ pub struct IndexStore {
 }
 
 pub enum Identity {
-    Password { username: String, password: String },
-    Token { username: String, token: String },
+    Password {
+        username: String,
+        password: String,
+    },
+    Token {
+        username: String,
+        token: String,
+    },
+    /// Supplied by an `identity/*` plugin rather than built into the engine.
+    Plugin {
+        kind: String,
+        config: serde_json::Value,
+    },
 }
 
 fn required<'py>(
@@ -100,9 +111,21 @@ impl CreateOptions {
     /// The engine's own secret store and the plugin-facing resolver are fed
     /// from the same map, but are separate objects: the resolver runs on plugin
     /// threads and must not touch the async runtime.
+    /// The identity plugin this configuration asks for, if any.
+    ///
+    /// Resolving it needs a loaded plugin, which is why the caller does it and
+    /// hands the result back to `apply`.
+    pub fn identity_plugin(&self) -> Option<(String, serde_json::Value)> {
+        match &self.identity {
+            Some(Identity::Plugin { kind, config }) => Some((kind.clone(), config.clone())),
+            _ => None,
+        }
+    }
+
     pub async fn apply(
         mut self,
         mut builder: DrasiLibBuilder,
+        plugin_identity: Option<Arc<dyn drasi_lib::identity::IdentityProvider>>,
     ) -> PyResult<(DrasiLibBuilder, HashMap<String, String>)> {
         let secrets = std::mem::take(&mut self.secrets);
         let mut store = MemorySecretStoreProvider::new();
@@ -130,7 +153,7 @@ impl CreateOptions {
         }
 
         if let Some(identity) = self.identity {
-            builder = builder.with_identity_provider(match identity {
+            let provider: Arc<dyn drasi_lib::identity::IdentityProvider> = match identity {
                 Identity::Password { username, password } => {
                     Arc::new(PasswordIdentityProvider::new(username, password))
                 }
@@ -144,7 +167,17 @@ impl CreateOptions {
                         })
                     }))
                 }
-            });
+                Identity::Plugin { kind, .. } => plugin_identity.ok_or_else(|| {
+                    error(
+                        DrasiErrorCode::UnknownIdentityKind,
+                        format!(
+                            "no identity plugin registered for kind '{kind}'; \
+                             pass plugins_dir= to create() with the plugin in it"
+                        ),
+                    )
+                })?,
+            };
+            builder = builder.with_identity_provider(provider);
         }
 
         Ok((builder, secrets))
@@ -306,9 +339,18 @@ fn parse_identity(value: &Bound<'_, PyAny>) -> PyResult<Identity> {
                 "a token identity requires a 'token'",
             )?,
         }),
-        other => Err(error(
-            DrasiErrorCode::UnknownIdentityKind,
-            format!("unknown identity kind '{other}', expected 'password' or 'token'"),
-        )),
+        // Anything else names an identity plugin. Whether one is registered
+        // for that kind is decided once plugins have been loaded, because at
+        // this point none have been.
+        other => {
+            let mut config = py_to_json(options.as_any())?;
+            if let Some(map) = config.as_object_mut() {
+                map.remove("kind");
+            }
+            Ok(Identity::Plugin {
+                kind: other.to_string(),
+                config,
+            })
+        }
     }
 }

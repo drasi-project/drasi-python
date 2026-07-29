@@ -327,3 +327,67 @@ async def test_an_unknown_secret_store_kind_is_rejected(engine_factory: EngineFa
         with pytest.raises(DrasiError) as caught:
             await drasi.use_secret_store("not-a-real-store", {})
         assert caught.value.code == "UNKNOWN_SECRET_STORE_KIND"
+
+
+async def test_a_directory_scan_finds_every_plugin_type(engine: Drasi, tmp_path: Path) -> None:
+    """The host SDK's filename patterns cover three of the five plugin types.
+
+    `libdrasi_secret-store_file.dylib` and `libdrasi_identity_test.dylib` match
+    none of them, so a directory holding both loaded neither and reported no
+    error - a file that matches nothing simply is not a plugin as far as the
+    scan is concerned. This binding supplies its own patterns.
+    """
+    for reference in ("source/mock", "secret-store/file", "identity/test"):
+        await engine.install_plugin(reference, directory=tmp_path, load=False)
+
+    summary = await engine.load_plugins(tmp_path)
+    assert summary["plugins"] == 3, summary
+    assert summary["sources"] == 1
+    assert summary["secret_stores"] == 1
+    assert summary["identity_providers"] == 1
+
+    kinds = await engine.plugin_kinds()
+    assert kinds["secret_stores"] == ["file"]
+    assert kinds["identity_providers"] == ["test"]
+
+
+async def test_an_identity_plugin_can_be_selected_at_creation(
+    engine: Drasi, tmp_path: Path
+) -> None:
+    """An identity provider only reaches the engine through the builder.
+
+    The builder runs before any plugin could be loaded, which is why an
+    `identity/*` plugin used to be installable and impossible to select. The
+    plugin is now loaded from `plugins_dir` before the engine is built.
+    """
+    await engine.install_plugin("identity/test", directory=tmp_path, load=False)
+
+    with_identity = await Drasi.create(
+        "t-identity-plugin", identity={"kind": "test"}, plugins_dir=str(tmp_path)
+    )
+    try:
+        await with_identity.start()
+        assert await with_identity.is_running() is True
+    finally:
+        await with_identity.close()
+
+
+async def test_an_identity_kind_with_no_plugin_is_rejected(tmp_path: Path) -> None:
+    """Guards the test above: the plugin has to be what makes it work."""
+    with pytest.raises(DrasiError) as caught:
+        await Drasi.create(
+            "t-identity-missing", identity={"kind": "test"}, plugins_dir=str(tmp_path)
+        )
+    assert caught.value.code == "UNKNOWN_IDENTITY_KIND"
+
+
+async def test_an_identity_plugin_needs_a_plugins_dir() -> None:
+    """An unknown kind reads as an unknown kind, with the plugin route named.
+
+    Most of the time it is a typo rather than a missing directory, so the code
+    stays UNKNOWN_IDENTITY_KIND and the message covers both.
+    """
+    with pytest.raises(DrasiError) as caught:
+        await Drasi.create("t-identity-nodir", identity={"kind": "test"})
+    assert caught.value.code == "UNKNOWN_IDENTITY_KIND"
+    assert "plugins_dir" in str(caught.value)

@@ -15,6 +15,12 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - `secret_store_config_schema(kind)`, matching the source, reaction and bootstrap
   equivalents.
 - `UNKNOWN_SECRET_STORE_KIND`.
+- `create(..., plugins_dir=...)`, which loads plugins from a directory before the
+  engine is built. This is what makes an `identity/*` plugin selectable: an
+  identity provider only reaches the engine through its builder, which runs
+  before anything could call `install_plugin`.
+- `identity={"kind": ...}` now accepts a kind provided by a plugin, alongside the
+  built-in `password` and `token`.
 
 ### Fixed
 
@@ -24,10 +30,13 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   was never consulted - the failure showed up much later as a secret that could
   not be found. Both are now registered, and `plugin_kinds()` and the
   `load_plugins` summary report them.
-- The plugins guide said this host loads identity providers and secret stores.
-  Secret stores now work; identity providers are registered and reported but
-  cannot yet be selected, because `create(identity=...)` uses the kinds built
-  into the engine. The page says so rather than implying otherwise.
+- A directory scan skipped secret store and identity plugins entirely. The host
+  SDK's filename patterns cover only sources, reactions and bootstrap providers,
+  so `libdrasi_secret-store_file.dylib` and `libdrasi_identity_test.dylib`
+  matched nothing and were not loaded, with no error: a file matching no pattern
+  simply is not a plugin as far as the scan is concerned. A directory holding
+  three plugins reported one. This binding now supplies its own patterns
+  covering all five types.
 
 ## [0.1.2] - 2026-07-28
 

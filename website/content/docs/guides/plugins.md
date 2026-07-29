@@ -8,9 +8,8 @@ description: >
 
 Drasi's sources, reactions, bootstrap providers, secret stores and identity providers
 are **plugins**: self-contained native libraries (`.so`, `.dylib`, `.dll`) that this
-host loads at runtime, exactly as `drasi-server` does. Sources, reactions, bootstrap
-providers and secret stores can all be used from Python; identity providers are loaded
-but not yet selectable, as noted below. That means a Python application
+host loads at runtime, exactly as `drasi-server` does. All five types can be used from
+Python. That means a Python application
 can follow Postgres, Kafka or Kubernetes without anyone writing Python bindings for
 each one.
 
@@ -217,12 +216,23 @@ A resolved value is cached, because the lookup crosses into the store's own runt
 a plugin that re-reads its configuration on every reconnect would otherwise pay for it
 each time.
 
-{{% alert title="Identity providers are not selectable yet" color="warning" %}}
-The registry also publishes `identity/*` plugins. This host now registers them, and
-`plugin_kinds()` reports them, but there is no way to select one: the `identity=`
-option on `create` uses the kinds built into the engine. Until that changes, installing
-an identity plugin gets you a plugin that is loaded and unused.
-{{% /alert %}}
+### Identity providers
+
+`password` and `token` are built into the engine. Any other `identity` kind names an
+`identity/*` plugin:
+
+```python
+drasi = await Drasi.create(
+    "app",
+    identity={"kind": "azure", "client_id": "..."},
+    plugins_dir="/opt/drasi/plugins",
+)
+```
+
+`plugins_dir` is required here, and only here. An identity provider reaches the engine
+through its builder, which runs before anything could call `install_plugin`, so the
+plugin has to be on disk when `create` is called. Download it ahead of time with
+`install_plugin(..., load=False, directory=...)`, or ship it in your image.
 
 ## Next
 

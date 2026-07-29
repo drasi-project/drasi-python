@@ -38,12 +38,11 @@ use drasi_host_sdk::registry::types::{HostVersionInfo, RegistryConfig};
 use drasi_host_sdk::watcher::{PluginWatcher, PluginWatcherConfig};
 use drasi_host_sdk::{
     InstanceCallbackContext, LoadedPlugin, PluginLoader, PluginLoaderConfig, PluginRegistry,
-    DEFAULT_PLUGIN_FILE_PATTERNS,
 };
 use drasi_lib::DrasiLib;
 use drasi_plugin_sdk::descriptor::{
-    BootstrapPluginDescriptor, ReactionPluginDescriptor, SecretStorePluginDescriptor,
-    SourcePluginDescriptor,
+    BootstrapPluginDescriptor, IdentityProviderPluginDescriptor, ReactionPluginDescriptor,
+    SecretStorePluginDescriptor, SourcePluginDescriptor,
 };
 use serde_json::Value;
 use tokio::sync::Mutex;
@@ -54,6 +53,29 @@ use crate::{DRASI_CORE_VERSION, DRASI_LIB_VERSION, DRASI_SDK_VERSION};
 
 /// The registry official Drasi plugins are published to.
 pub const DEFAULT_REGISTRY: &str = "ghcr.io/drasi-project";
+
+/// Filenames treated as plugins when scanning a directory.
+///
+/// The host SDK's `DEFAULT_PLUGIN_FILE_PATTERNS` covers only sources, reactions
+/// and bootstrap providers, so a directory holding
+/// `libdrasi_secret-store_file.dylib` or `libdrasi_identity_azure.dylib` loads
+/// neither - with no error, because a file that matches nothing is simply not a
+/// plugin as far as the scan is concerned. Note the hyphen: secret store
+/// artifacts are named after the `secret-store` plugin type.
+const PLUGIN_FILE_PATTERNS: &[&str] = &[
+    "libdrasi_source_*",
+    "libdrasi_reaction_*",
+    "libdrasi_bootstrap_*",
+    "libdrasi_secret-store_*",
+    "libdrasi_secret_store_*",
+    "libdrasi_identity_*",
+    "drasi_source_*",
+    "drasi_reaction_*",
+    "drasi_bootstrap_*",
+    "drasi_secret-store_*",
+    "drasi_secret_store_*",
+    "drasi_identity_*",
+];
 
 /// Counts returned after scanning a directory.
 #[derive(Debug, Default, Clone, Copy)]
@@ -178,6 +200,37 @@ impl PluginHost {
         (log_ctx, lifecycle_ctx)
     }
 
+    /// Loads a directory before any engine exists, to obtain an identity
+    /// provider.
+    ///
+    /// `drasi-lib` only accepts an identity provider through the builder, and
+    /// the builder runs before plugins can be loaded, so the provider has to
+    /// come from somewhere that does not need a built engine. Plugins loaded
+    /// this way get no log or lifecycle callbacks - the SDK's callbacks ignore a
+    /// null context - which is why this host is used for nothing else: anything
+    /// loaded here would be unable to report status.
+    pub async fn load_dir_headless(&self, dir: &Path) -> Result<LoadSummary> {
+        if !dir.is_dir() {
+            return Err(anyhow!("plugin directory not found: {}", dir.display()));
+        }
+
+        let loader = PluginLoader::new(PluginLoaderConfig {
+            plugin_dir: dir.to_path_buf(),
+            file_patterns: PLUGIN_FILE_PATTERNS
+                .iter()
+                .map(|pattern| (*pattern).to_string())
+                .collect(),
+        });
+
+        let plugins = loader.load_all(
+            std::ptr::null_mut(),
+            instance_log_callback_fn(),
+            std::ptr::null_mut(),
+            instance_lifecycle_callback_fn(),
+        )?;
+        self.register(plugins).await
+    }
+
     /// Discovers and loads every plugin in `dir`.
     ///
     /// When `expected_hashes` is supplied, a file is only loaded if its SHA-256
@@ -198,7 +251,7 @@ impl PluginHost {
 
         let loader = PluginLoader::new(PluginLoaderConfig {
             plugin_dir: dir.to_path_buf(),
-            file_patterns: DEFAULT_PLUGIN_FILE_PATTERNS
+            file_patterns: PLUGIN_FILE_PATTERNS
                 .iter()
                 .map(|pattern| (*pattern).to_string())
                 .collect(),
@@ -244,7 +297,7 @@ impl PluginHost {
         let directory = path.parent().unwrap_or(Path::new(".")).to_path_buf();
         let loader = PluginLoader::new(PluginLoaderConfig {
             plugin_dir: directory,
-            file_patterns: DEFAULT_PLUGIN_FILE_PATTERNS
+            file_patterns: PLUGIN_FILE_PATTERNS
                 .iter()
                 .map(|pattern| (*pattern).to_string())
                 .collect(),
@@ -348,6 +401,17 @@ impl PluginHost {
         provider: Box<dyn drasi_lib::secret_store::SecretStoreProvider>,
     ) -> anyhow::Result<()> {
         self.resolver.set_secret_store(provider)
+    }
+
+    pub async fn identity_descriptor(
+        &self,
+        kind: &str,
+    ) -> Option<Arc<dyn IdentityProviderPluginDescriptor>> {
+        self.registry
+            .lock()
+            .await
+            .get_identity_provider(kind)
+            .cloned()
     }
 
     pub async fn secret_store_kinds(&self) -> Vec<String> {
