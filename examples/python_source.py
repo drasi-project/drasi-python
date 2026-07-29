@@ -50,9 +50,6 @@ async def main() -> None:
                 # Which of `data`, `before` and `after` a diff carries is decided by
                 # its `type`, which a single TypedDict cannot express, so these reads
                 # are checked at runtime rather than by the type checker.
-                # Which of `data`, `before` and `after` a diff carries is decided by
-                # its `type`, which a single TypedDict cannot express, so these reads
-                # are checked at runtime rather than by the type checker.
                 if diff["type"] == "ADD":
                     print(f"  + {diff['data']}")
                 elif diff["type"] == "DELETE":
