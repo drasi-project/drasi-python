@@ -165,17 +165,9 @@ through untouched. Ask a loaded plugin what it accepts:
 schema = await drasi.source_config_schema("postgres")
 ```
 
-There are `reaction_config_schema` and `bootstrap_config_schema` equivalents.
-
-{{% alert title="A trap worth knowing about" color="warning" %}}
-For the Postgres source, `tables` is schema-qualified (`public.orders`) but
-`tableKeys.table` must be the **bare** table name (`orders`). Qualify the second one and
-the key is silently ignored: updates arrive as duplicate inserts and deletes do nothing
-at all.
-
-The same source also needs a publication to exist. Without one it connects, reports
-`Running`, and delivers nothing.
-{{% /alert %}}
+There are `reaction_config_schema` and `bootstrap_config_schema` equivalents. What those
+keys mean, and which combinations are valid, is the plugin's business — consult the
+plugin's own documentation rather than expecting this library to describe it.
 
 ## Secrets
 

@@ -39,9 +39,9 @@ CREATE PUBLICATION drasi_publication FOR TABLE orders;
 ```
 
 `REPLICA IDENTITY FULL` makes Postgres include the old row in updates and deletes, so a
-query can tell you what changed rather than only what it changed to. The **publication**
-is required: without one the source connects, reports `Running`, and delivers nothing at
-all.
+query can tell you what changed rather than only what it changed to. The publication is
+what the source replicates from. Both are Postgres-side replication setup — the source
+plugin's own documentation is what specifies them.
 
 ## The program
 
@@ -145,18 +145,6 @@ The `bootstrap=` argument attaches a bootstrap provider, which loads the current
 contents when the query subscribes; the change feed takes over from there. Leave it out
 and the dashboard starts blank, filling in only as rows happen to be touched — which
 looks like the source losing data.
-
-## The two asymmetries that bite
-
-`tables` is schema-qualified (`public.orders`) but `tableKeys.table` must be the **bare**
-name (`orders`). Qualify the second and the key is silently ignored: updates arrive as
-duplicate inserts, and deletes do nothing.
-
-Second, the query matches `(o:orders)` — the *bare table name* as the label, not the
-schema-qualified one.
-
-Neither mistake produces an error. Both produce a dashboard that is quietly wrong,
-which is why they are worth stating twice.
 
 ## Watch it update
 

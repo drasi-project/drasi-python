@@ -110,24 +110,10 @@ print(schema["name"])  # source.postgres.PostgresSourceConfig
 print(schema["schema"])  # OpenAPI definitions, including required fields
 ```
 
-### A trap worth knowing about
+### Unrecognised configuration keys
 
-Configuration mistakes are validated by the plugin, and a plugin that does not
-recognise a key generally ignores it rather than failing. The Postgres source
-has a particularly sharp example:
-
-```python
-{
-    "tables": ["public.orders"],  # schema-qualified
-    "tableKeys": [{"table": "orders", "keyColumns": ["id"]}],  # bare name
-}
-```
-
-`tables` is schema-qualified but `tableKeys.table` is not. Qualify the latter and
-the key is silently not applied: every update arrives as a second `ADD` rather
-than an `UPDATE`, so rows accumulate, and deletes do nothing at all. Nothing
-errors.
-
-The same source also requires a Postgres publication to exist
-(`CREATE PUBLICATION drasi_publication FOR TABLE ...`). Without it the source
-connects, reports `Running`, and delivers nothing.
+Configuration is validated by the plugin, not by this library, and a plugin that
+does not recognise a key generally ignores it rather than failing. A misspelled
+or wrongly shaped key can therefore leave a component running and quietly doing
+less than you asked. What each key means is specified by the plugin's own
+documentation.

@@ -62,8 +62,8 @@ reads a property of that name and gets `None` unless the source emits it in
 ### Continuous queries
 
 Queries are written in Cypher (the default) or GQL, against the graph the sources
-produce. Node labels come from the source — a Postgres source labels rows with the
-bare table name, so a row in `public.orders` matches `MATCH (o:orders)`.
+produce. Node labels come from the source, which decides how it labels what it emits;
+its own documentation is what tells you.
 
 One query can span several sources. That is where Drasi differs from a database view:
 the sources can be entirely different systems, and the join between them is maintained
