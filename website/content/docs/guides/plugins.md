@@ -114,8 +114,7 @@ await drasi.install_plugin(
 ```
 
 `verify=True` checks a signature when one is present. `require_signed=True` additionally
-refuses to install an unsigned plugin, which is the setting you want in production —
-otherwise an unsigned artifact quietly installs and the check tells you nothing.
+refuses to install an unsigned plugin.
 
 Verification failure raises `PluginSignatureError`.
 

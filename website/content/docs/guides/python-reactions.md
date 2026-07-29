@@ -90,13 +90,11 @@ for example when the data it referred to is no longer available after a restart:
 | `auto_reset` | Start again from the current position, accepting the gap. |
 | `skip_gap` | Continue past the gap and carry on from what is available. |
 
-`strict` is the default because the alternatives lose data, and losing it silently is
-worse than a startup failure you can see.
+`strict` is the default: the alternatives accept data loss.
 
 {{% alert title="Durable reactions must be async" color="warning" %}}
 The reaction loop runs off your event loop, so a plain function cannot be awaited
-there. Registering one raises immediately rather than failing later — a callback that
-is silently never awaited is far harder to diagnose than a rejected registration.
+there. Registering one raises immediately.
 {{% /alert %}}
 
 Checkpoints advance only after your callback returns without raising. If it raises, the

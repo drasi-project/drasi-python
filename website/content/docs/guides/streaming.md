@@ -79,9 +79,6 @@ except StreamLaggedError as err:
 The message says how many items were dropped, so you can decide whether to re-read the
 full result set with `get_query_results` and carry on, or treat it as an error.
 
-Being told is the point: silently dropping events is exactly the failure that makes a
-dashboard drift from reality with nothing in the logs.
-
 ## Ending a stream
 
 Iteration ends when the engine stops producing, so closing the engine terminates any

@@ -288,7 +288,7 @@ registry that `drasi-server` and `@drasi/lib` already use, so a new plugin is
 available to Python users the day it is published, with no release on our side.
 That also keeps the three host implementations on one distribution story.
 
-The trade is real and worth stating: runtime loading means a plugin has to match
+The trade: runtime loading means a plugin has to match
 the host's `sdk`/`core`/`lib` versions and target triple, which is a class of
 failure the compile-time model does not have. That risk is already mitigated —
 `install_plugin` resolves a compatible build automatically, mismatches raise
@@ -306,7 +306,7 @@ Not API gaps, and tracked separately in the epic:
 - First stable release — team#113
 - Introduction article and tutorial — team#115, #116
 
-Two engine-level behaviours are worth knowing, both pinned by tests:
+Two engine-level behaviours, both pinned by tests:
 
 - `get_reaction_metrics()["checkpoint_sequence"]` is the forwarder's *delivery*
   position, not the durable checkpoint. It advances even when a durable handler

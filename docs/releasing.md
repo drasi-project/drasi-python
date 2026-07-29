@@ -86,8 +86,8 @@ plus **PyPI Project Name** `drasi-lib`.
 
 ### Organization roles do not grant project permissions
 
-This is the trap worth knowing about. An organization **Manager** can create a
-project but cannot manage it afterwards, because managing a specific project
+An organization **Manager** can create a project but cannot manage it
+afterwards, because managing a specific project
 needs a **project role** — held as a collaborator — and an organization role
 does not confer one. The symptom is a greyed-out **Manage** button and a `403`
 on the project's settings URL, immediately after successfully creating it.

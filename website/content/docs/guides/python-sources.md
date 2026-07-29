@@ -32,8 +32,7 @@ accepted, and the value is case-insensitive, so `INSERT` works too.
 
 {{% alert title="id is the key, not a property" color="warning" %}}
 `id` identifies the node in the graph. A query selecting `o.id` reads a *property*
-called `id`, so emit it in `properties` as well or the column comes back `None` — with
-no error to tell you why.
+called `id`, so emit it in `properties` as well or the column comes back `None`.
 {{% /alert %}}
 
 ## Updating and deleting
@@ -96,9 +95,8 @@ await asyncio.gather(*(drasi.push_change("orders", order(i)) for i in range(100)
 
 ## Ordering with respect to queries
 
-A query only sees changes that arrive after it subscribes. Push before the query is
-running and those changes are simply not in its result set — there is no error, and
-nothing to notice later. Wait for the query first:
+A query only sees changes that arrive after it subscribes, so push after the query is
+running:
 
 ```python
 await drasi.add_query("open", OPEN_ORDERS, ["orders"])

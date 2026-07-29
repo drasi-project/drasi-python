@@ -129,17 +129,13 @@ engine:
 A durable reaction records how far it got, so after a restart it resumes rather than
 replaying from the beginning or silently skipping what it missed.
 
-{{% alert title="Restarting with a Python source loses the first few changes" color="warning" %}}
-A query restores its indexes from `index_store` correctly, including after a crash. But
-it also restores the sequence number it had reached, while a source added with
-`add_python_source()` starts counting from 1 again — it has no durable position of its
-own to recover from. Changes whose sequence the query has already seen are discarded, so
-the first *K* changes you push after a restart vanish, where *K* is how many you pushed
-before it. `push_change()` reports no error.
+{{% alert title="Known issue: restarting a Python source" color="warning" %}}
+After a restart, a query restores the sequence number it had reached, but a source added
+with `add_python_source()` starts counting from 1 again. The first *K* changes pushed
+after the restart are discarded as already-seen, where *K* is how many were pushed
+before it — [drasi-core#664](https://github.com/drasi-project/drasi-core/issues/664).
 
-This is [drasi-core#664](https://github.com/drasi-project/drasi-core/issues/664). Until
-it is fixed, treat a restarted Python source as needing its first *K* changes re-sent, or
-keep the query's index in memory so it rebuilds from scratch.
+Re-send those changes, or keep the query's index in memory so it rebuilds from scratch.
 {{% /alert %}}
 
 ## Next

@@ -213,15 +213,13 @@ changes propagate:
 RUST_LOG=info .venv/bin/python examples/python_source.py
 ```
 
-## Things that trip people up
-
-These fail quietly rather than loudly, so they are worth knowing up front.
+## Writing changes the examples rely on
 
 **Cypher string literals are single-quoted.** `WHERE o.status = "open"` is a
 parse error; use `'open'`.
 
 **A change's `id` is the graph key, not a property.** A query selecting `o.id`
-reads a *property* named `id`, so your source has to emit it:
+reads a *property* named `id`, so emit it in both places:
 
 ```python
 await drasi.push_change(
@@ -235,15 +233,10 @@ await drasi.push_change(
 )
 ```
 
-Get this wrong and rows come back with `{'id': None}` rather than an error.
-
 **Start the engine before adding components.** They auto-start individually.
-Adding everything first and then calling `start()` also works, but logs a
-spurious "already running" error for each one.
 
-**`add_query` returns before the query is running.** It finishes starting in the
-background, so reading results immediately can raise "is not running". Await
-`wait_for_query(id)` when you need to read straight away.
+**`add_query` returns before the query is running.** Await `wait_for_query(id)`
+when you need to read results straight away.
 
 **Plugin config keys belong to the plugin.** Drasi's own API is snake_case, but
 a plugin that declares `intervalMs` wants exactly that. Ask it what it accepts:
@@ -252,9 +245,6 @@ a plugin that declares `intervalMs` wants exactly that. Ask it what it accepts:
 schema = await drasi.source_config_schema("postgres")
 print(schema["name"], schema["schema"])
 ```
-
-See [`docs/plugins.md`](../docs/plugins.md) for more, including a sharp edge in
-the Postgres source's `tableKeys`.
 
 ## Writing your own
 

@@ -67,9 +67,8 @@ The engine is inherently asynchronous, so the sync facade runs an asyncio loop o
 background thread and submits work to it. That thread is shared by every sync engine in
 the process, so creating several is cheap.
 
-The consequence worth knowing: **do not use `drasi.sync` from inside a running event
-loop.** Blocking the loop to wait on the background thread is a deadlock waiting to
-happen. In async code, use `drasi.Drasi` directly — that is what it is for.
+**Do not use `drasi.sync` from inside a running event loop.** Blocking the loop to wait
+on the background thread can deadlock. In async code, use `drasi.Drasi` directly.
 
 ## Choosing between them
 
