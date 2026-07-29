@@ -7,7 +7,15 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.1.3] - 2026-07-29
+
 ### Added
+
+- Python 3.14 is tested. The abi3 wheels were expected to work on it without a
+  rebuild, which is what abi3 is for, but nothing had ever run on 3.14; the full
+  suite and both plugin tiers now do, and CI covers it.
 
 - `use_secret_store(kind, config)`, which routes a plugin's `{"kind": "Secret"}`
   references through an installed `secret-store` plugin. Previously the only
