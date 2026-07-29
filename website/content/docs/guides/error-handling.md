@@ -61,6 +61,7 @@ The full set is available at runtime as `drasi.ERROR_CODES`.
 | `UNKNOWN_SOURCE_KIND` | No source plugin is registered for that kind |
 | `UNKNOWN_REACTION_KIND` | No reaction plugin is registered for that kind |
 | `UNKNOWN_BOOTSTRAP_KIND` | No bootstrap plugin is registered for that kind |
+| `UNKNOWN_SECRET_STORE_KIND` | No secret store plugin is registered for that kind |
 | `BOOTSTRAP_KIND_REQUIRED` | A bootstrap block was given without a `kind` |
 | `MISSING_CONFIG_FIELD` | A required configuration field was absent |
 | `NO_PY_SOURCE` | The id does not name a Python-defined source |

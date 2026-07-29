@@ -42,7 +42,8 @@ use drasi_host_sdk::{
 };
 use drasi_lib::DrasiLib;
 use drasi_plugin_sdk::descriptor::{
-    BootstrapPluginDescriptor, ReactionPluginDescriptor, SourcePluginDescriptor,
+    BootstrapPluginDescriptor, ReactionPluginDescriptor, SecretStorePluginDescriptor,
+    SourcePluginDescriptor,
 };
 use serde_json::Value;
 use tokio::sync::Mutex;
@@ -61,6 +62,8 @@ pub struct LoadSummary {
     pub sources: usize,
     pub reactions: usize,
     pub bootstrap: usize,
+    pub secret_stores: usize,
+    pub identity_providers: usize,
 }
 
 /// What a plugin reference resolved to.
@@ -99,6 +102,9 @@ pub struct PluginHost {
     /// backing `Arc` is intentionally leaked, since a plugin may resolve at any
     /// point in its life.
     resolver_ctx: CallbackPtr,
+    /// The same context the pointer above refers to, kept so the host can
+    /// install a secret store after plugins have been loaded.
+    resolver: Arc<ConfigResolverContext>,
     registry: Mutex<PluginRegistry>,
     loaded: Mutex<Vec<LoadedPlugin>>,
     callbacks: Mutex<Option<Arc<InstanceCallbackContext>>>,
@@ -113,7 +119,8 @@ impl PluginHost {
     pub fn new(secrets: HashMap<String, String>) -> Self {
         let resolver = Arc::new(ConfigResolverContext::new(secrets));
         Self {
-            resolver_ctx: CallbackPtr(resolver.into_raw()),
+            resolver_ctx: CallbackPtr(Arc::clone(&resolver).into_raw()),
+            resolver,
             registry: Mutex::new(PluginRegistry::new()),
             loaded: Mutex::new(Vec::new()),
             callbacks: Mutex::new(None),
@@ -280,6 +287,16 @@ impl PluginHost {
                 registry.register_bootstrapper(Arc::new(descriptor));
                 summary.bootstrap += 1;
             }
+            // Dropping these silently is what made `install_plugin` report a
+            // secret store as loaded and then behave as though it were absent.
+            for descriptor in std::mem::take(&mut plugin.secret_store_plugins) {
+                registry.register_secret_store(Arc::new(descriptor));
+                summary.secret_stores += 1;
+            }
+            for descriptor in std::mem::take(&mut plugin.identity_provider_plugins) {
+                registry.register_identity_provider(Arc::new(descriptor));
+                summary.identity_providers += 1;
+            }
         }
         drop(registry);
 
@@ -323,6 +340,41 @@ impl PluginHost {
             .into_iter()
             .map(str::to_string)
             .collect()
+    }
+
+    /// Routes plugin secret references through a plugin-provided store.
+    pub fn set_secret_store(
+        &self,
+        provider: Box<dyn drasi_lib::secret_store::SecretStoreProvider>,
+    ) -> anyhow::Result<()> {
+        self.resolver.set_secret_store(provider)
+    }
+
+    pub async fn secret_store_kinds(&self) -> Vec<String> {
+        self.registry
+            .lock()
+            .await
+            .secret_store_kinds()
+            .into_iter()
+            .map(str::to_string)
+            .collect()
+    }
+
+    pub async fn identity_kinds(&self) -> Vec<String> {
+        self.registry
+            .lock()
+            .await
+            .identity_provider_kinds()
+            .into_iter()
+            .map(str::to_string)
+            .collect()
+    }
+
+    pub async fn secret_store_descriptor(
+        &self,
+        kind: &str,
+    ) -> Option<Arc<dyn SecretStorePluginDescriptor>> {
+        self.registry.lock().await.get_secret_store(kind).cloned()
     }
 
     pub async fn source_descriptor(&self, kind: &str) -> Option<Arc<dyn SourcePluginDescriptor>> {

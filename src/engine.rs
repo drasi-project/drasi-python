@@ -1187,11 +1187,15 @@ impl Drasi {
             let sources = inner.plugins.source_kinds().await;
             let reactions = inner.plugins.reaction_kinds().await;
             let bootstrap = inner.plugins.bootstrap_kinds().await;
+            let secret_stores = inner.plugins.secret_store_kinds().await;
+            let identity_providers = inner.plugins.identity_kinds().await;
             Python::attach(|py| {
                 let kinds = PyDict::new(py);
                 kinds.set_item("sources", sources)?;
                 kinds.set_item("reactions", reactions)?;
                 kinds.set_item("bootstrap", bootstrap)?;
+                kinds.set_item("secret_stores", secret_stores)?;
+                kinds.set_item("identity_providers", identity_providers)?;
                 Ok(kinds.unbind())
             })
         })
@@ -1526,6 +1530,72 @@ impl Drasi {
                     error(
                         DrasiErrorCode::UnknownReactionKind,
                         format!("no reaction plugin registered for kind '{kind}'"),
+                    )
+                })?;
+            let name = descriptor.config_schema_name().to_string();
+            let schema = descriptor.config_schema_json();
+            Python::attach(|py| schema_to_py(py, &name, &schema).map(Bound::unbind))
+        })
+    }
+
+    /// Resolves plugin secret references through an installed secret store.
+    ///
+    /// Install a `secret-store/*` plugin first. Without one, a
+    /// `{"kind": "Secret", ...}` reference in a plugin's configuration can only
+    /// be satisfied by the mapping passed to `create(secrets=...)`.
+    #[pyo3(signature = (kind, config = None))]
+    fn use_secret_store<'py>(
+        &self,
+        py: Python<'py>,
+        kind: String,
+        config: Option<&Bound<'py, PyAny>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let config = match config {
+            Some(value) => py_to_json(value)?,
+            None => serde_json::json!({}),
+        };
+        let inner = self.inner();
+        inner.ensure_open()?;
+        future_into_py(py, async move {
+            let descriptor = inner
+                .plugins
+                .secret_store_descriptor(&kind)
+                .await
+                .ok_or_else(|| {
+                    unknown_kind(
+                        DrasiErrorCode::UnknownSecretStoreKind,
+                        "secret store",
+                        &kind,
+                    )
+                })?;
+            let provider = descriptor
+                .create_secret_store(&config)
+                .await
+                .map_err(engine_error)?;
+            inner
+                .plugins
+                .set_secret_store(provider)
+                .map_err(engine_error)
+        })
+    }
+
+    /// The OpenAPI schema describing a secret store plugin's configuration.
+    fn secret_store_config_schema<'py>(
+        &self,
+        py: Python<'py>,
+        kind: String,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner();
+        future_into_py(py, async move {
+            let descriptor = inner
+                .plugins
+                .secret_store_descriptor(&kind)
+                .await
+                .ok_or_else(|| {
+                    unknown_kind(
+                        DrasiErrorCode::UnknownSecretStoreKind,
+                        "secret store",
+                        &kind,
                     )
                 })?;
             let name = descriptor.config_schema_name().to_string();
@@ -2111,6 +2181,8 @@ fn summary_to_py(py: Python<'_>, summary: LoadSummary) -> PyResult<Bound<'_, PyD
     result.set_item("sources", summary.sources)?;
     result.set_item("reactions", summary.reactions)?;
     result.set_item("bootstrap", summary.bootstrap)?;
+    result.set_item("secret_stores", summary.secret_stores)?;
+    result.set_item("identity_providers", summary.identity_providers)?;
     Ok(result)
 }
 

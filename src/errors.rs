@@ -40,6 +40,7 @@ pub enum DrasiErrorCode {
     UnknownSourceKind,
     UnknownReactionKind,
     UnknownBootstrapKind,
+    UnknownSecretStoreKind,
     BootstrapKindRequired,
     MissingConfigField,
     NoPySource,
@@ -73,6 +74,7 @@ impl DrasiErrorCode {
             Self::UnknownSourceKind => "UNKNOWN_SOURCE_KIND",
             Self::UnknownReactionKind => "UNKNOWN_REACTION_KIND",
             Self::UnknownBootstrapKind => "UNKNOWN_BOOTSTRAP_KIND",
+            Self::UnknownSecretStoreKind => "UNKNOWN_SECRET_STORE_KIND",
             Self::BootstrapKindRequired => "BOOTSTRAP_KIND_REQUIRED",
             Self::MissingConfigField => "MISSING_CONFIG_FIELD",
             Self::NoPySource => "NO_PY_SOURCE",
@@ -108,6 +110,7 @@ impl DrasiErrorCode {
             UnknownSourceKind,
             UnknownReactionKind,
             UnknownBootstrapKind,
+            UnknownSecretStoreKind,
             BootstrapKindRequired,
             MissingConfigField,
             NoPySource,
@@ -143,6 +146,7 @@ impl DrasiErrorCode {
             UnknownSourceKind
             | UnknownReactionKind
             | UnknownBootstrapKind
+            | UnknownSecretStoreKind
             | UnknownStateStoreKind
             | UnknownIndexStoreKind
             | UnknownIdentityKind

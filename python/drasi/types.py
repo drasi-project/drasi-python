@@ -355,12 +355,16 @@ class LoadSummary(TypedDict):
     sources: int
     reactions: int
     bootstrap: int
+    secret_stores: int
+    identity_providers: int
 
 
 class PluginKinds(TypedDict):
     sources: list[str]
     reactions: list[str]
     bootstrap: list[str]
+    secret_stores: list[str]
+    identity_providers: list[str]
 
 
 # ------------------------------------------------------------ declarative form

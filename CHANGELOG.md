@@ -7,7 +7,27 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- `use_secret_store(kind, config)`, which routes a plugin's `{"kind": "Secret"}`
+  references through an installed `secret-store` plugin. Previously the only
+  source of a secret was the mapping passed to `create(secrets=...)`.
+- `secret_store_config_schema(kind)`, matching the source, reaction and bootstrap
+  equivalents.
+- `UNKNOWN_SECRET_STORE_KIND`.
+
+### Fixed
+
+- Secret store and identity provider plugins were loaded and then discarded. The
+  host SDK returns five kinds of descriptor and only three were registered, so
+  `install_plugin("secret-store/file")` reported `loaded: True` while the store
+  was never consulted - the failure showed up much later as a secret that could
+  not be found. Both are now registered, and `plugin_kinds()` and the
+  `load_plugins` summary report them.
+- The plugins guide said this host loads identity providers and secret stores.
+  Secret stores now work; identity providers are registered and reported but
+  cannot yet be selected, because `create(identity=...)` uses the kinds built
+  into the engine. The page says so rather than implying otherwise.
 
 ## [0.1.2] - 2026-07-28
 

@@ -524,6 +524,12 @@ class Drasi:
     def bootstrap_config_schema(self, kind: str) -> ConfigSchema:
         return _Loop.run(lambda: self._inner.bootstrap_config_schema(kind))
 
+    def secret_store_config_schema(self, kind: str) -> ConfigSchema:
+        return _Loop.run(lambda: self._inner.secret_store_config_schema(kind))
+
+    def use_secret_store(self, kind: str, config: Mapping[str, Any] | None = None) -> None:
+        _Loop.run(lambda: self._inner.use_secret_store(kind, config))
+
     # ------------------------------------------------------ metrics and schema
 
     def get_query_metrics(self, id: str) -> QueryMetrics:

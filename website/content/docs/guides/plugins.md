@@ -6,9 +6,11 @@ description: >
   Search, install, verify and load Drasi's native source, reaction and bootstrap plugins.
 ---
 
-Drasi's sources, reactions, bootstrap providers, identity providers and secret stores
+Drasi's sources, reactions, bootstrap providers, secret stores and identity providers
 are **plugins**: self-contained native libraries (`.so`, `.dylib`, `.dll`) that this
-host loads at runtime, exactly as `drasi-server` does. That means a Python application
+host loads at runtime, exactly as `drasi-server` does. Sources, reactions, bootstrap
+providers and secret stores can all be used from Python; identity providers are loaded
+but not yet selectable, as noted below. That means a Python application
 can follow Postgres, Kafka or Kubernetes without anyone writing Python bindings for
 each one.
 
@@ -194,7 +196,33 @@ await drasi.add_source(
 ```
 
 The plugin never sees the value until it asks for it, and the config you log or store
-holds only the reference.
+holds only the reference. `{"kind": "EnvironmentVariable", "name": "PGPASSWORD"}` works
+the same way, and takes an optional `default`.
+
+### Resolving from a secret store
+
+Passing every secret to `create` means having them all to hand. A `secret-store` plugin
+resolves them on demand instead:
+
+```python
+await drasi.install_plugin("secret-store/file")
+await drasi.use_secret_store("file", {"path": "/etc/myapp/secrets.json"})
+```
+
+From then on a reference a plugin cannot find in the mapping given to `create` is
+looked up in the store. `azure-keyvault` and `keyring` are published alongside `file`;
+ask each what it needs with `secret_store_config_schema(kind)`.
+
+A resolved value is cached, because the lookup crosses into the store's own runtime and
+a plugin that re-reads its configuration on every reconnect would otherwise pay for it
+each time.
+
+{{% alert title="Identity providers are not selectable yet" color="warning" %}}
+The registry also publishes `identity/*` plugins. This host now registers them, and
+`plugin_kinds()` reports them, but there is no way to select one: the `identity=`
+option on `create` uses the kinds built into the engine. Until that changes, installing
+an identity plugin gets you a plugin that is loaded and unused.
+{{% /alert %}}
 
 ## Next
 

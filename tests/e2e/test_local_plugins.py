@@ -122,7 +122,14 @@ async def test_config_schema_for_an_unloaded_kind_is_rejected(engine: Drasi) -> 
 
 async def test_loading_an_empty_directory_is_not_an_error(engine: Drasi, tmp_path: Path) -> None:
     summary = await engine.load_plugins(str(tmp_path))
-    assert summary == {"plugins": 0, "sources": 0, "reactions": 0, "bootstrap": 0}
+    assert summary == {
+        "plugins": 0,
+        "sources": 0,
+        "reactions": 0,
+        "bootstrap": 0,
+        "secret_stores": 0,
+        "identity_providers": 0,
+    }
 
 
 async def test_loading_a_missing_directory_reports_clearly(engine: Drasi, tmp_path: Path) -> None:

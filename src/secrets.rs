@@ -31,20 +31,96 @@ use std::collections::HashMap;
 use std::ffi::c_void;
 use std::sync::{Arc, RwLock};
 
+use drasi_lib::secret_store::SecretStoreProvider;
 use drasi_plugin_sdk::ffi::secret_store::FfiGetSecretResult;
 use drasi_plugin_sdk::ffi::FfiStr;
 use serde::Deserialize;
 
+/// A request to the secret store worker.
+struct SecretRequest {
+    name: String,
+    reply: std::sync::mpsc::Sender<Result<String, String>>,
+}
+
+/// A plugin-provided secret store, reachable from synchronous code.
+///
+/// `SecretStoreProvider::get_secret` is async, but the resolver below is a
+/// synchronous `extern "C"` callback that may already be running on a tokio
+/// worker, where `block_on` panics with "cannot start a runtime from within a
+/// runtime". The provider therefore lives on its own thread with its own
+/// current-thread runtime, and callers hand it a name and wait on a channel.
+struct SecretStoreWorker {
+    requests: std::sync::mpsc::Sender<SecretRequest>,
+}
+
+impl SecretStoreWorker {
+    fn spawn(provider: Box<dyn SecretStoreProvider>) -> std::io::Result<Self> {
+        let (requests, incoming) = std::sync::mpsc::channel::<SecretRequest>();
+        std::thread::Builder::new()
+            .name("drasi-secret-store".to_string())
+            .spawn(move || {
+                let runtime = match tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                {
+                    Ok(runtime) => runtime,
+                    Err(err) => {
+                        // Answer rather than hang: a caller blocked on the reply
+                        // channel would otherwise wait forever.
+                        while let Ok(request) = incoming.recv() {
+                            let _ = request.reply.send(Err(format!(
+                                "the secret store worker could not start a runtime: {err}"
+                            )));
+                        }
+                        return;
+                    }
+                };
+                while let Ok(request) = incoming.recv() {
+                    let result = runtime
+                        .block_on(provider.get_secret(&request.name))
+                        .map_err(|err| err.to_string());
+                    let _ = request.reply.send(result);
+                }
+            })?;
+        Ok(Self { requests })
+    }
+
+    fn get(&self, name: &str) -> Result<String, String> {
+        let (reply, answer) = std::sync::mpsc::channel();
+        self.requests
+            .send(SecretRequest {
+                name: name.to_string(),
+                reply,
+            })
+            .map_err(|_| "the secret store is no longer running".to_string())?;
+        answer
+            .recv()
+            .map_err(|_| "the secret store did not answer".to_string())?
+    }
+}
+
 /// Host state handed to the resolver callback on every invocation.
 pub struct ConfigResolverContext {
     secrets: RwLock<HashMap<String, String>>,
+    store: RwLock<Option<SecretStoreWorker>>,
 }
 
 impl ConfigResolverContext {
     pub fn new(secrets: HashMap<String, String>) -> Self {
         Self {
             secrets: RwLock::new(secrets),
+            store: RwLock::new(None),
         }
+    }
+
+    /// Installs a plugin-provided secret store, replacing any previous one.
+    pub fn set_secret_store(&self, provider: Box<dyn SecretStoreProvider>) -> anyhow::Result<()> {
+        let worker = SecretStoreWorker::spawn(provider)?;
+        *self
+            .store
+            .write()
+            .map_err(|_| anyhow::anyhow!("the secret store lock was poisoned"))? = Some(worker);
+        Ok(())
     }
 
     /// Leaks the context for the FFI boundary.
@@ -57,7 +133,18 @@ impl ConfigResolverContext {
     }
 
     fn secret(&self, name: &str) -> Option<String> {
-        self.secrets.read().ok()?.get(name).cloned()
+        if let Some(value) = self.secrets.read().ok().and_then(|s| s.get(name).cloned()) {
+            return Some(value);
+        }
+
+        // Asking the store means blocking this thread on another one, so the
+        // answer is cached: a plugin that reads the same reference on every
+        // reconnect would otherwise stall a worker every time.
+        let value = self.store.read().ok()?.as_ref()?.get(name).ok()?;
+        if let Ok(mut secrets) = self.secrets.write() {
+            secrets.insert(name.to_string(), value.clone());
+        }
+        Some(value)
     }
 }
 
@@ -102,8 +189,9 @@ pub extern "C" fn resolve_config_value(
         Ok(ConfigValueRef::Secret { name }) => match context.secret(&name) {
             Some(value) => FfiGetSecretResult::ok(value),
             None => FfiGetSecretResult::err(format!(
-                "no secret named '{name}' was provided; \
-                 pass it to Drasi.create(secrets={{...}})"
+                "no secret named '{name}' is available; pass it to \
+                 Drasi.create(secrets={{...}}) or install a secret store plugin \
+                 and select it with use_secret_store()"
             )),
         },
         Ok(ConfigValueRef::EnvironmentVariable { name, default }) => {

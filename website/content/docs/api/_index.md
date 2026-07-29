@@ -132,6 +132,8 @@ from what the package exposes.
 | `source_config_schema(kind: str)` | `Awaitable[ConfigSchema]` |
 | `reaction_config_schema(kind: str)` | `Awaitable[ConfigSchema]` |
 | `bootstrap_config_schema(kind: str)` | `Awaitable[ConfigSchema]` |
+| `secret_store_config_schema(kind: str)` | `Awaitable[ConfigSchema]` |
+| `use_secret_store(self, kind: str, config: Mapping[str, Any] \| None = None )` | `Awaitable[None]` |
 
 ## Errors
 

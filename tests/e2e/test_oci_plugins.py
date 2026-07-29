@@ -24,14 +24,16 @@ runs on every platform. Set `DRASI_OCI_TESTS=1` to enable them locally.
 
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from drasi import Drasi, PluginCompatibilityError, PluginSignatureError, host_info
+from drasi import Drasi, DrasiError, PluginCompatibilityError, PluginSignatureError, host_info
 
+from ..conftest import EngineFactory
 from .helpers import wait_for_at_least_rows, wait_for_query_running
 
 pytestmark = pytest.mark.oci
@@ -257,3 +259,71 @@ def _sha256(path: Path) -> str:
     import hashlib
 
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+async def test_a_secret_store_plugin_resolves_a_reference_for_another_plugin(
+    engine_factory: EngineFactory, tmp_path: Path
+) -> None:
+    """Installing a secret store used to load it and then ignore it.
+
+    The host SDK hands back five kinds of descriptor and this binding registered
+    three, so `install_plugin("secret-store/...")` reported `loaded: True` and
+    the store was never consulted - the silent kind of failure, where the only
+    symptom is a secret that cannot be found.
+
+    Nothing is passed to `create(secrets=...)` here, so the plugin below can
+    only get its interval from the store.
+    """
+    secrets_file = tmp_path / "secrets.json"
+    secrets_file.write_text(json.dumps({"INTERVAL": "60"}), encoding="utf-8")
+
+    async with await engine_factory("t-secret-store") as drasi:
+        await drasi.install_plugin("source/mock")
+        await drasi.install_plugin("secret-store/file")
+
+        kinds = await drasi.plugin_kinds()
+        assert "file" in kinds["secret_stores"], kinds
+
+        await drasi.use_secret_store("file", {"path": str(secrets_file)})
+        await drasi.start()
+
+        await drasi.add_source(
+            "mock",
+            "counters",
+            {
+                "dataType": {"type": "counter"},
+                "intervalMs": {"kind": "Secret", "name": "INTERVAL"},
+            },
+        )
+        await drasi.add_query("counts", COUNTER_QUERY, ["counters"])
+        await wait_for_query_running(drasi, "counts")
+
+        rows = await wait_for_at_least_rows(drasi, "counts", count=3, timeout=60)
+        assert len(rows) >= 3
+
+
+async def test_without_a_secret_store_the_same_reference_cannot_be_resolved(
+    engine_factory: EngineFactory, tmp_path: Path
+) -> None:
+    """Guards the test above: it has to be the store doing the work."""
+    async with await engine_factory("t-no-secret-store") as drasi:
+        await drasi.install_plugin("source/mock")
+        await drasi.start()
+
+        with pytest.raises(DrasiError) as caught:
+            await drasi.add_source(
+                "mock",
+                "counters",
+                {
+                    "dataType": {"type": "counter"},
+                    "intervalMs": {"kind": "Secret", "name": "INTERVAL"},
+                },
+            )
+        assert "INTERVAL" in str(caught.value)
+
+
+async def test_an_unknown_secret_store_kind_is_rejected(engine_factory: EngineFactory) -> None:
+    async with await engine_factory("t-secret-store-unknown") as drasi:
+        with pytest.raises(DrasiError) as caught:
+            await drasi.use_secret_store("not-a-real-store", {})
+        assert caught.value.code == "UNKNOWN_SECRET_STORE_KIND"
