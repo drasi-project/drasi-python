@@ -22,6 +22,7 @@ them does.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -77,7 +78,10 @@ def test_documented_sample_runs(name: str, source: str, tmp_path: Path) -> None:
         text=True,
         timeout=120,
         cwd=tmp_path,
-        env={"RUST_LOG": "error", "PATH": "/usr/bin:/bin"},
+        # Inherit the environment rather than replacing it: on Windows, dropping
+        # SystemRoot breaks Winsock, so `import asyncio` fails before the sample
+        # gets a chance to run.
+        env={**os.environ, "RUST_LOG": "error"},
     )
     assert result.returncode == 0, (
         f"{name} failed\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
@@ -98,7 +102,10 @@ def test_documented_sample_produces_output(name: str, source: str, tmp_path: Pat
         text=True,
         timeout=120,
         cwd=tmp_path,
-        env={"RUST_LOG": "error", "PATH": "/usr/bin:/bin"},
+        # Inherit the environment rather than replacing it: on Windows, dropping
+        # SystemRoot breaks Winsock, so `import asyncio` fails before the sample
+        # gets a chance to run.
+        env={**os.environ, "RUST_LOG": "error"},
     )
     assert result.stdout.strip(), f"{name} printed nothing"
     # An empty result set usually means the sample raced its own query.
