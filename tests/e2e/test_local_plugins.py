@@ -129,6 +129,7 @@ async def test_loading_an_empty_directory_is_not_an_error(engine: Drasi, tmp_pat
         "bootstrap": 0,
         "secret_stores": 0,
         "identity_providers": 0,
+        "skipped": 0,
     }
 
 

@@ -60,8 +60,13 @@ pub const DEFAULT_REGISTRY: &str = "ghcr.io/drasi-project";
 /// and bootstrap providers, so a directory holding
 /// `libdrasi_secret-store_file.dylib` or `libdrasi_identity_azure.dylib` loads
 /// neither - with no error, because a file that matches nothing is simply not a
-/// plugin as far as the scan is concerned. Note the hyphen: secret store
-/// artifacts are named after the `secret-store` plugin type.
+/// plugin as far as the scan is concerned. Reported upstream as
+/// drasi-project/drasi-core#661; drop this once the SDK default covers all five
+/// types.
+///
+/// The hyphenated spellings are kept because an earlier version of
+/// `plugin_file_name` wrote `libdrasi_secret-store_file`, so a directory
+/// populated by it would otherwise stop loading.
 const PLUGIN_FILE_PATTERNS: &[&str] = &[
     "libdrasi_source_*",
     "libdrasi_reaction_*",
@@ -86,6 +91,33 @@ pub struct LoadSummary {
     pub bootstrap: usize,
     pub secret_stores: usize,
     pub identity_providers: usize,
+    /// Shared libraries in the directory that were not loaded.
+    ///
+    /// A file whose name matches no pattern is skipped, and until this existed
+    /// it was skipped in complete silence: a directory holding three plugins
+    /// reported one, with nothing to say the other two had been ignored.
+    pub skipped: usize,
+}
+
+/// Extensions a plugin binary can have, used only to notice files the scan
+/// passed over.
+const CDYLIB_EXTENSIONS: &[&str] = &["so", "dylib", "dll"];
+
+/// Counts shared libraries in `dir`, whether or not they look like plugins.
+fn shared_library_count(dir: &Path) -> usize {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    entries
+        .flatten()
+        .filter(|entry| {
+            entry
+                .path()
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| CDYLIB_EXTENSIONS.contains(&ext))
+        })
+        .count()
 }
 
 /// What a plugin reference resolved to.
@@ -228,7 +260,10 @@ impl PluginHost {
             std::ptr::null_mut(),
             instance_lifecycle_callback_fn(),
         )?;
-        self.register(plugins).await
+        let candidates = shared_library_count(dir);
+        let mut summary = self.register(plugins).await?;
+        summary.skipped = candidates.saturating_sub(summary.plugins);
+        Ok(summary)
     }
 
     /// Discovers and loads every plugin in `dir`.
@@ -282,7 +317,10 @@ impl PluginHost {
             }
         };
 
-        self.register(plugins).await
+        let candidates = shared_library_count(dir);
+        let mut summary = self.register(plugins).await?;
+        summary.skipped = candidates.saturating_sub(summary.plugins);
+        Ok(summary)
     }
 
     /// Loads a single plugin file.
@@ -646,7 +684,15 @@ pub async fn resolve(client: &OciRegistryClient, reference: &str) -> Result<Reso
 /// to match the host's conventions: `libdrasi_source_mock.dylib` on macOS,
 /// `drasi_source_mock.dll` on Windows.
 pub fn plugin_file_name(plugin_type: &str, kind: &str) -> String {
-    let stem = format!("drasi_{}_{}", plugin_type, kind.replace('-', "_"));
+    // Both halves are normalised. Rust turns a hyphen in a crate name into an
+    // underscore when it names the cdylib, so `drasi-secret-store-file` builds
+    // `libdrasi_secret_store_file.dylib`; writing the plugin type verbatim gave
+    // it a hyphen that exists nowhere upstream.
+    let stem = format!(
+        "drasi_{}_{}",
+        plugin_type.replace('-', "_"),
+        kind.replace('-', "_")
+    );
     if cfg!(target_os = "windows") {
         format!("{stem}.dll")
     } else if cfg!(target_os = "macos") {

@@ -198,3 +198,25 @@ async def test_an_unknown_dispatch_mode_is_rejected(engine: Drasi) -> None:
             dispatch_mode="carrier-pigeon",  # pyright: ignore[reportArgumentType]  # invalid on purpose
         )
     assert caught.value.code == "CONFIG_INVALID"
+
+
+async def test_a_shared_library_the_scan_ignores_is_counted(engine: Drasi, tmp_path: Path) -> None:
+    """A skipped file used to leave no trace at all.
+
+    The host SDK matches plugins by filename, and anything matching no pattern
+    is passed over in silence. That is how secret store and identity plugins
+    went missing: a directory holding three of them reported one, and nothing
+    said the other two had been ignored. The count makes it visible.
+    """
+    (tmp_path / "libsomething_else.dylib").write_bytes(b"not a plugin")
+    (tmp_path / "notes.txt").write_text("not a library either", encoding="utf-8")
+
+    summary = await engine.load_plugins(tmp_path)
+
+    assert summary["plugins"] == 0
+    assert summary["skipped"] == 1, "the unmatched shared library should be reported"
+
+
+async def test_an_empty_directory_skips_nothing(engine: Drasi, tmp_path: Path) -> None:
+    summary = await engine.load_plugins(tmp_path)
+    assert summary["skipped"] == 0

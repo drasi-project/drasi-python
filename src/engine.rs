@@ -2244,6 +2244,7 @@ fn summary_to_py(py: Python<'_>, summary: LoadSummary) -> PyResult<Bound<'_, PyD
     result.set_item("bootstrap", summary.bootstrap)?;
     result.set_item("secret_stores", summary.secret_stores)?;
     result.set_item("identity_providers", summary.identity_providers)?;
+    result.set_item("skipped", summary.skipped)?;
     Ok(result)
 }
 

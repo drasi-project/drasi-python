@@ -36,7 +36,16 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   matched nothing and were not loaded, with no error: a file matching no pattern
   simply is not a plugin as far as the scan is concerned. A directory holding
   three plugins reported one. This binding now supplies its own patterns
-  covering all five types.
+  covering all five types. Reported upstream as drasi-project/drasi-core#661.
+- Installed plugin files were named after the plugin type verbatim, so
+  `secret-store/file` was written as `libdrasi_secret-store_file.dylib`. Rust
+  turns a hyphen in a crate name into an underscore when it names the cdylib, so
+  the build itself produced `libdrasi_secret_store_file.dylib` - the hyphen was
+  ours, and it was the spelling that matched no pattern. Both halves of the name
+  are normalised now, and the scan still accepts the old spelling.
+- `load_plugins` reports `skipped`, the number of shared libraries in the
+  directory that were not loaded. A file matching no pattern was previously
+  passed over in silence, which is why the missing plugin types went unnoticed.
 
 ## [0.1.2] - 2026-07-28
 

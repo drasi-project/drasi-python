@@ -397,3 +397,27 @@ async def test_an_identity_plugin_needs_a_plugins_dir() -> None:
         await Drasi.create("t-identity-nodir", identity={"kind": "test"})
     assert caught.value.code == "UNKNOWN_IDENTITY_KIND"
     assert "plugins_dir" in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    ("reference", "expected"),
+    [
+        ("source/mock", "drasi_source_mock"),
+        ("secret-store/file", "drasi_secret_store_file"),
+        ("identity/test", "drasi_identity_test"),
+    ],
+)
+async def test_installed_files_are_named_the_way_the_build_named_them(
+    engine: Drasi, tmp_path: Path, reference: str, expected: str
+) -> None:
+    """Rust turns a hyphen in a crate name into an underscore in the cdylib.
+
+    `drasi-secret-store-file` builds `libdrasi_secret_store_file.dylib`, but the
+    plugin *type* was written into the filename verbatim, producing
+    `libdrasi_secret-store_file.dylib` - a spelling that exists nowhere upstream
+    and that the scan's patterns did not match.
+    """
+    installed = await engine.install_plugin(reference, directory=tmp_path, load=False)
+    stem = Path(installed["path"]).stem.removeprefix("lib")
+    assert stem == expected
+    assert "-" not in stem

@@ -364,6 +364,7 @@ class LoadSummary(TypedDict):
     bootstrap: int
     secret_stores: int
     identity_providers: int
+    skipped: int
 
 
 class PluginKinds(TypedDict):
