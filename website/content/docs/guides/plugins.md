@@ -40,9 +40,16 @@ Passing no query lists everything. `list_plugin_tags` shows the tags of a single
 repository, and `resolve_plugin` reports what a reference would resolve to on this
 host without downloading it.
 
-At the time of writing the registry publishes 19 source kinds, 15 reaction kinds and
-3 bootstrap kinds, including `postgres`, `mysql`, `mssql`, `kafka`, `kubernetes` and
-`neo4j` sources, and `dashboard`, `http`, `grpc`, `sse` and `mcp` reactions.
+The registry carries source, reaction, bootstrap, identity and secret-store plugins —
+`postgres`, `mysql`, `mssql`, `kafka`, `kubernetes` and `neo4j` sources among them, and
+`dashboard`, `http`, `grpc`, `sse` and `mcp` reactions. Rather than trust a list here
+that goes stale as the registry grows, ask it:
+
+```python
+kinds = {}
+for hit in await drasi.search_plugins():
+    kinds.setdefault(hit["plugin_type"], []).append(hit["kind"])
+```
 
 ## Where plugins come from
 
@@ -171,11 +178,19 @@ a reference:
 ```python
 drasi = await Drasi.create("app", secrets={"PGPASSWORD": os.environ["PGPASSWORD"]})
 
-await drasi.add_source("postgres", "db", {
-    "host": "localhost",
-    "password": {"kind": "Secret", "name": "PGPASSWORD"},
-    ...
-})
+await drasi.add_source(
+    "postgres",
+    "db",
+    {
+        "host": "localhost",
+        "port": 5432,
+        "user": "postgres",
+        "database": "app",
+        "password": {"kind": "Secret", "name": "PGPASSWORD"},
+        "tables": ["public.orders"],
+        "tableKeys": [{"table": "orders", "keyColumns": ["id"]}],
+    },
+)
 ```
 
 The plugin never sees the value until it asks for it, and the config you log or store

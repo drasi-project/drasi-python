@@ -95,7 +95,15 @@ Every method has a blocking counterpart in `drasi.sync`, for scripts, notebooks 
 anywhere `async` would be awkward:
 
 ```python
+import time
+
 from drasi.sync import Drasi
+
+OPEN_ORDERS = """
+MATCH (o:Order)
+WHERE o.status = 'open'
+RETURN o.id AS id, o.total AS total
+"""
 
 with Drasi.create("script") as drasi:
     drasi.start()
@@ -107,9 +115,13 @@ with Drasi.create("script") as drasi:
             "op": "insert",
             "id": "o1",
             "labels": ["Order"],
-            "properties": {"id": "o1", "status": "open"},
+            "properties": {"id": "o1", "status": "open", "total": 42},
         },
     )
+    # A query processes changes asynchronously, so give it a moment before
+    # reading the result set. `query_results` is the alternative: it yields each
+    # change as it lands rather than making you guess how long to wait.
+    time.sleep(1)
     print(drasi.get_query_results("open"))
 ```
 

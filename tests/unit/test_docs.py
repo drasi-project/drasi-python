@@ -114,3 +114,89 @@ def test_the_link_checker_matches_the_published_base_path() -> None:
     checker = (ROOT / "scripts" / "check_site_links.py").read_text(encoding="utf-8")
     prefix = re.search(r'PREFIX = "([^"]+)"', checker)
     assert prefix and prefix.group(1) == "/drasi-python/"
+
+
+def _python_blocks() -> list[tuple[str, str]]:
+    import textwrap
+
+    blocks: list[tuple[str, str]] = []
+    for page in sorted(CONTENT.rglob("*.md")):
+        text = page.read_text(encoding="utf-8")
+        for index, match in enumerate(re.finditer(r"```python\n(.*?)```", text, re.S)):
+            source = textwrap.dedent(match.group(1))
+            if source.lstrip().startswith(">>>"):
+                continue
+            blocks.append((f"{page.relative_to(CONTENT)}#{index}", source))
+    return blocks
+
+
+def test_every_python_sample_parses() -> None:
+    """Catches a sample nobody can run at all.
+
+    A `...` placeholder inside a dict literal is a syntax error rather than the
+    elision it looks like, and reading the page will not tell you.
+    """
+    import ast
+    import textwrap
+
+    blocks = _python_blocks()
+    assert blocks, "no python samples found"
+
+    broken: list[str] = []
+    for name, source in blocks:
+        try:
+            ast.parse(source)
+        except SyntaxError:
+            # Fragments use a bare `await`, which needs a function around it.
+            try:
+                ast.parse("async def _f():\n" + textwrap.indent(source, "    "))
+            except SyntaxError as err:
+                broken.append(f"{name}: {err}")
+    assert not broken, "samples that do not parse:\n  " + "\n  ".join(broken)
+
+
+def test_samples_only_call_methods_that_exist() -> None:
+    """Catches an invented method or keyword argument.
+
+    Most of these samples cannot be executed - they are fragments - so the call
+    itself is the only thing left to check.
+    """
+    import ast
+    import textwrap
+
+    from drasi import Drasi
+
+    problems: list[str] = []
+    for name, source in _python_blocks():
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            tree = ast.parse("async def _f():\n" + textwrap.indent(source, "    "))
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+                continue
+            base = node.func.value
+            receiver = getattr(base, "id", None) or getattr(getattr(base, "func", None), "id", None)
+            if receiver not in {"drasi", "Drasi", "engine"}:
+                continue
+            method = getattr(Drasi, node.func.attr, None)
+            if method is None:
+                problems.append(f"{name}: Drasi has no {node.func.attr!r}")
+                continue
+            signature = getattr(method, "__text_signature__", None)
+            if not signature:
+                continue
+            accepted = {
+                part.split("=")[0].strip().lstrip("*")
+                for part in signature.strip("()").split(",")
+                if part.strip() not in {"", "*", "/", "$self"}
+            }
+            for keyword in node.keywords:
+                if keyword.arg and keyword.arg not in accepted:
+                    problems.append(
+                        f"{name}: {node.func.attr}() has no {keyword.arg!r}; "
+                        f"accepts {sorted(accepted)}"
+                    )
+    assert not problems, "samples calling something that does not exist:\n  " + "\n  ".join(
+        problems
+    )
