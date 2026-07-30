@@ -5,7 +5,7 @@
 > [#110](https://github.com/drasi-project/team/issues/110).
 >
 > **Status: every gap identified below is closed.** `drasi-python` is at
-> **48/48 `@drasi/lib` methods (100%)** plus 21 methods Node does not have.
+> **48/48 `@drasi/lib` methods (100%)** plus 23 methods Node does not have.
 > The sections below are kept as the record of what was found and what was
 > done; the original findings are marked ✅ where they have been addressed.
 >
@@ -24,7 +24,7 @@ one genuine advantage — streaming as async iterators — has been carried over
 | Wraps | `drasi-lib` + `drasi-host-sdk` | `drasi-core` / `drasi-lib` |
 | Components | **loaded at runtime** from `ghcr.io/drasi-project` | **linked at compile time**, one PyPI package each |
 | PyPI packages | 1 | 23 + workspace root |
-| Engine methods | 37 | 27 |
+| Engine methods (at audit) | 37 | 27 |
 | Errors | 8 classes, 26 codes | 1 class, no codes |
 | Streaming | none | async iterators |
 | Python | ≥3.10 (abi3) | ≥3.11 |
