@@ -4,7 +4,8 @@
 > and the record of closing it in
 > [#110](https://github.com/drasi-project/team/issues/110).
 >
-> **Status: every gap identified below is closed.** `drasi-python` is at
+> **Status: every gap identified below is closed, except query middleware,
+> which is deferred — see item 16.** `drasi-python` is at
 > **48/48 `@drasi/lib` methods (100%)** plus 23 methods Node does not have.
 > The sections below are kept as the record of what was found and what was
 > done; the original findings are marked ✅ where they have been addressed.
@@ -214,9 +215,10 @@ These are lower priority than the Node parity gaps — they are engine surface
 neither binding has needed yet — but `snapshot_configuration` pairs naturally
 with `from_config`.
 
-## 5. Prioritized gap list — all closed
+## 5. Prioritized gap list
 
-Each item became a work item under #110. All are done.
+Each item became a work item under #110. All are done except the middleware
+part of item 16, which is deferred with rationale.
 
 ### P0 — blocks realistic use
 
@@ -249,7 +251,21 @@ Each item became a work item under #110. All are done.
 14. **Plugin lockfiles** — `PluginLockfile` is in `drasi-host-sdk` and unexposed;
     needed for reproducible installs.
 15. **Sync facade** — `drasi.sync.Drasi` for scripts and notebooks.
-16. **Query tuning options** — middleware, recovery policy, storage backend.
+16. **Query tuning options** — recovery policy and storage backend are exposed
+    (`recovery_policy` on `add_durable_python_reaction`, `index_store` on
+    `create`), along with dispatch mode, buffer capacities and bootstrap
+    settings on `add_query`.
+
+    **Middleware is deferred.** `QueryConfig.middleware` exists in `drasi-lib`,
+    but none of the `middleware-*` Cargo features are enabled in this build, so
+    no factories are registered and there would be nothing to name. `@drasi/lib`
+    does not expose middleware either, so exposing it here would break parity
+    rather than restore it. Deferring it keeps the two bindings aligned; the
+    work is enabling the features and adding a `middleware=` argument to
+    `add_query` and to `from_config`'s query entries.
+
+    Note that `from_config` currently ignores unrecognised query keys, so a
+    `middleware` block passed today is silently dropped rather than rejected.
 17. **`get_source_status` / `get_reaction_status`** — `get_query_status` exists;
     the other two do not.
 
