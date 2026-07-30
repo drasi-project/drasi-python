@@ -25,7 +25,7 @@ from __future__ import annotations
 import pytest
 
 from drasi import Drasi, DrasiError
-from drasi.types import Middleware
+from drasi.types import Middleware, SourceChange
 
 from .helpers import wait_for_query_running, wait_for_rows
 
@@ -41,7 +41,7 @@ PROMOTE_CITY: list[Middleware] = [
     }
 ]
 
-ORDER = {
+ORDER: SourceChange = {
     "op": "insert",
     "id": "o1",
     "labels": ["Order"],
@@ -128,11 +128,23 @@ async def test_middleware_needs_a_name_and_a_kind(engine: Drasi) -> None:
     await engine.add_python_source("orders")
 
     with pytest.raises(DrasiError) as missing_kind:
-        await engine.add_query("q", CITY_QUERY, ["orders"], middleware=[{"name": "flatten"}])
+        # Deliberately missing `kind`; the type checker is right to object.
+        await engine.add_query(
+            "q",
+            CITY_QUERY,
+            ["orders"],
+            middleware=[{"name": "flatten"}],  # pyright: ignore
+        )
     assert "kind" in str(missing_kind.value)
 
     with pytest.raises(DrasiError) as missing_name:
-        await engine.add_query("q", CITY_QUERY, ["orders"], middleware=[{"kind": "promote"}])
+        # Deliberately missing `name`.
+        await engine.add_query(
+            "q",
+            CITY_QUERY,
+            ["orders"],
+            middleware=[{"kind": "promote"}],  # pyright: ignore
+        )
     assert "name" in str(missing_name.value)
 
 
@@ -141,7 +153,8 @@ async def test_a_malformed_source_entry_is_rejected(engine: Drasi) -> None:
     await engine.add_python_source("orders")
 
     with pytest.raises(DrasiError):
-        await engine.add_query("q", CITY_QUERY, [{"pipeline": ["flatten"]}])
+        # Deliberately missing `id`.
+        await engine.add_query("q", CITY_QUERY, [{"pipeline": ["flatten"]}])  # pyright: ignore
 
 
 async def test_from_config_reads_middleware() -> None:
