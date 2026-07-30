@@ -1,5 +1,13 @@
 # drasi-lib
 
+[![PyPI version](https://img.shields.io/pypi/v/drasi-lib)](https://pypi.org/project/drasi-lib/)
+[![Python versions](https://img.shields.io/pypi/pyversions/drasi-lib)](https://pypi.org/project/drasi-lib/)
+[![license](https://img.shields.io/pypi/l/drasi-lib)](https://github.com/drasi-project/drasi-python/blob/main/LICENSE)
+[![docs](https://img.shields.io/badge/docs-drasi--project.github.io-blue)](https://drasi-project.github.io/drasi-python/)
+
+📖 **Documentation: <https://drasi-project.github.io/drasi-python/>** — installation,
+concepts, the full API reference, guides, and a worked example.
+
 Embed the [Drasi](https://drasi.io) continuous-query engine directly in your
 Python application. `drasi-lib` is a native [PyO3](https://pyo3.rs) binding
 around Drasi's embeddable engine (`drasi-lib`) and its plugin host SDK
@@ -112,7 +120,9 @@ handles this for you — it reads the registry index, picks the newest build who
 `sdk`/`core`/`lib` versions and target triple match this host, downloads it,
 optionally verifies its cosign signature, and loads it.
 
-See [`docs/plugins.md`](https://github.com/drasi-project/drasi-python/blob/main/docs/plugins.md).
+See the [plugins guide](https://drasi-project.github.io/drasi-python/docs/guides/plugins/), or
+[`docs/plugins.md`](https://github.com/drasi-project/drasi-python/blob/main/docs/plugins.md)
+for the contributor-facing detail.
 
 ## Watching a query
 
@@ -168,7 +178,9 @@ parity — 48/48 methods — plus 21 methods Node does not have.
 ## Examples
 
 Runnable programs are in [`examples/`](https://github.com/drasi-project/drasi-python/tree/main/examples), with a guide covering how to
-build the package locally and run them:
+build the package locally and run them. The documentation site also has a worked
+[Postgres dashboard](https://drasi-project.github.io/drasi-python/docs/examples/postgres-dashboard/)
+example built entirely on published plugins.
 
 | Example | What it shows | Needs |
 | --- | --- | --- |
