@@ -213,7 +213,7 @@ changes propagate:
 RUST_LOG=info .venv/bin/python examples/python_source.py
 ```
 
-## Writing changes the examples rely on
+## API notes
 
 **Cypher string literals are single-quoted.** `WHERE o.status = "open"` is a
 parse error; use `'open'`.
