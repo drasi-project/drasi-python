@@ -277,6 +277,6 @@ async def test_a_bootstrap_without_a_kind_is_rejected(postgres: dict[str, Any]) 
                 {**postgres["config"], "slotName": "drasi_bootstrap_nokind"},
                 bootstrap={"host": "localhost"},
             )
-        assert caught.value.code == "CONFIG_INVALID"
+        assert caught.value.code == "BOOTSTRAP_KIND_REQUIRED"
     finally:
         await engine.close()
