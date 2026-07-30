@@ -2414,9 +2414,7 @@ fn parse_bootstrap(value: &Bound<'_, PyAny>) -> PyResult<(String, serde_json::Va
 /// middleware pipeline to run over that source's changes:
 /// `{"id": "orders", "pipeline": ["unpack"]}`. The names in `pipeline` refer to
 /// middleware declared in the same query's `middleware` argument.
-fn parse_source_subscriptions(
-    sources: &Bound<'_, PyAny>,
-) -> PyResult<Vec<(String, Vec<String>)>> {
+fn parse_source_subscriptions(sources: &Bound<'_, PyAny>) -> PyResult<Vec<(String, Vec<String>)>> {
     let mut parsed = Vec::new();
     for entry in sources.try_iter()? {
         let entry = entry?;
