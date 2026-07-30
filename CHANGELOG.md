@@ -7,6 +7,15 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.2.0] - 2026-07-30
+
+Two behaviour changes to error reporting. Both are breaking, which is why this
+is a minor rather than a patch release, though neither can break code that was
+working: the removed codes were never raised, and the changed one replaces a
+code that documented a different case.
+
 ### Removed
 
 - `MISSING_CONFIG_FIELD` and `PY_SOURCE_CLOSED` error codes. Nothing raised
