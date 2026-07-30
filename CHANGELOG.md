@@ -7,6 +7,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.1.4] - 2026-07-30
+
 ### Added
 
 - Query middleware, which transforms a source's changes before a query sees
