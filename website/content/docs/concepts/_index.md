@@ -69,6 +69,31 @@ One query can span several sources. That is where Drasi differs from a database 
 the sources can be entirely different systems, and the join between them is maintained
 incrementally as either side changes.
 
+Sources that know nothing about each other emit no relationship between their nodes, so
+a pattern cannot traverse from one to the other on its own. Declare a **synthetic join**
+and the engine maintains one, matching on a property value:
+
+```python
+await drasi.add_query(
+    "orders-with-customers",
+    "MATCH (o:Order)-[:PLACED_BY]->(c:Customer) RETURN o.id AS id, c.name AS customer",
+    ["orders", "customers"],
+    joins=[
+        {
+            "id": "PLACED_BY",
+            "keys": [
+                {"label": "Order", "property": "customer_email"},
+                {"label": "Customer", "property": "email"},
+            ],
+        }
+    ],
+)
+```
+
+The join's `id` is the relationship type the pattern matches, and it exists only because
+the join declares it. Each key names a label and the property to match on, so an `Order`
+is related to the `Customer` whose `email` equals its `customer_email`.
+
 ### Reactions
 
 A reaction receives result-set diffs. Each diff has a `type`:

@@ -7,7 +7,13 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
-Nothing yet.
+### Documentation
+
+- How to declare a synthetic join. The concepts page said a query can span
+  several sources and that the join between them is maintained incrementally,
+  without mentioning that the relationship has to be declared with `joins=`.
+  Sources emit no relationship between each other's nodes, so the pattern
+  matches nothing until one is.
 
 ## [0.2.0] - 2026-07-30
 
