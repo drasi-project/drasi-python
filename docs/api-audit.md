@@ -4,8 +4,7 @@
 > and the record of closing it in
 > [#110](https://github.com/drasi-project/team/issues/110).
 >
-> **Status: every gap identified below is closed, except query middleware,
-> which is deferred — see item 16.** `drasi-python` is at
+> **Status: every gap identified below is closed.** `drasi-python` is at
 > **48/48 `@drasi/lib` methods (100%)** plus 23 methods Node does not have.
 > The sections below are kept as the record of what was found and what was
 > done; the original findings are marked ✅ where they have been addressed.
@@ -215,10 +214,9 @@ These are lower priority than the Node parity gaps — they are engine surface
 neither binding has needed yet — but `snapshot_configuration` pairs naturally
 with `from_config`.
 
-## 5. Prioritized gap list
+## 5. Prioritized gap list — all closed
 
-Each item became a work item under #110. All are done except the middleware
-part of item 16, which is deferred with rationale.
+Each item became a work item under #110. All are done.
 
 ### P0 — blocks realistic use
 
@@ -256,16 +254,12 @@ part of item 16, which is deferred with rationale.
     `create`), along with dispatch mode, buffer capacities and bootstrap
     settings on `add_query`.
 
-    **Middleware is deferred.** `QueryConfig.middleware` exists in `drasi-lib`,
-    but none of the `middleware-*` Cargo features are enabled in this build, so
-    no factories are registered and there would be nothing to name. `@drasi/lib`
-    does not expose middleware either, so exposing it here would break parity
-    rather than restore it. Deferring it keeps the two bindings aligned; the
-    work is enabling the features and adding a `middleware=` argument to
-    `add_query` and to `from_config`'s query entries.
+    Middleware is exposed as `middleware=` on `add_query`/`update_query`, with a
+    per-source `pipeline` given by passing `{"id": ..., "pipeline": [...]}` in
+    place of a source id. `from_config` reads both. Six middleware kinds are
+    compiled in; `jq` is excluded because it links libjq, and a C dependency
+    would put the cross-compiled wheels at risk.
 
-    Note that `from_config` currently ignores unrecognised query keys, so a
-    `middleware` block passed today is silently dropped rather than rejected.
 17. **`get_source_status` / `get_reaction_status`** — `get_query_status` exists;
     the other two do not.
 
