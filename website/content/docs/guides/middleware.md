@@ -35,7 +35,12 @@ property of the node. `promote` lifts it, and the query resolves it.
 A source that needs no middleware stays a plain string, and the two forms can be mixed:
 
 ```python
-sources=["payments", {"id": "orders", "pipeline": ["flatten"]}]
+await drasi.add_query(
+    "orders-by-city",
+    QUERY,
+    ["payments", {"id": "orders", "pipeline": ["flatten"]}],
+    middleware=[...],
+)
 ```
 
 ## Available kinds
@@ -77,9 +82,7 @@ drasi = await Drasi.from_config(
                     {
                         "name": "flatten",
                         "kind": "promote",
-                        "config": {
-                            "mappings": [{"path": "$.address.city", "target_name": "city"}]
-                        },
+                        "config": {"mappings": [{"path": "$.address.city", "target_name": "city"}]},
                     }
                 ],
             }
