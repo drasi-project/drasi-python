@@ -220,3 +220,16 @@ async def test_a_shared_library_the_scan_ignores_is_counted(engine: Drasi, tmp_p
 async def test_an_empty_directory_skips_nothing(engine: Drasi, tmp_path: Path) -> None:
     summary = await engine.load_plugins(tmp_path)
     assert summary["skipped"] == 0
+
+
+async def test_loading_a_directory_that_does_not_exist_is_reported(engine: Drasi) -> None:
+    with pytest.raises(PluginNotFoundError) as caught:
+        await engine.load_plugins("/no/such/plugin/directory")
+    assert caught.value.code == "PLUGIN_NOT_FOUND"
+
+
+async def test_creating_with_a_missing_plugins_dir_is_reported() -> None:
+    """`plugins_dir` loads before the engine is built, so it fails at create."""
+    with pytest.raises(PluginNotFoundError) as caught:
+        await Drasi.create("bad-plugins-dir", plugins_dir="/no/such/plugin/directory")
+    assert caught.value.code == "PLUGIN_NOT_FOUND"

@@ -63,9 +63,7 @@ The full set is available at runtime as `drasi.ERROR_CODES`.
 | `UNKNOWN_BOOTSTRAP_KIND` | No bootstrap plugin is registered for that kind |
 | `UNKNOWN_SECRET_STORE_KIND` | No secret store plugin is registered for that kind |
 | `BOOTSTRAP_KIND_REQUIRED` | A bootstrap block was given without a `kind` |
-| `MISSING_CONFIG_FIELD` | A required configuration field was absent |
 | `NO_PY_SOURCE` | The id does not name a Python-defined source |
-| `PY_SOURCE_CLOSED` | The source was removed while a change was in flight |
 | `CHANGE_NOT_OBJECT` | The change was not a mapping |
 | `CHANGE_OP_REQUIRED` | The change had no `op` |
 | `CHANGE_ID_REQUIRED` | The change had no `id` |

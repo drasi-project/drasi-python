@@ -2398,7 +2398,7 @@ fn parse_bootstrap(value: &Bound<'_, PyAny>) -> PyResult<(String, serde_json::Va
             }
             None => {
                 return Err(error(
-                    DrasiErrorCode::ConfigInvalid,
+                    DrasiErrorCode::BootstrapKindRequired,
                     "'bootstrap' needs a 'kind' naming the bootstrap plugin, \
                      for example {'kind': 'postgres', ...}",
                 ))

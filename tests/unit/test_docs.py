@@ -56,6 +56,32 @@ def test_every_documented_error_code_exists() -> None:
     assert documented == set(drasi.ERROR_CODES)
 
 
+def test_every_error_code_is_actually_raised() -> None:
+    """A code nothing constructs can never be caught.
+
+    `test_every_documented_error_code_exists` only ties the guide to
+    `ERROR_CODES`, so a variant declared in the enum and documented in the guide
+    satisfies both while being unreachable. Three were: two named cases that
+    raised something else, and one raised nowhere at all.
+    """
+    source = ROOT / "src"
+    errors_rs = (source / "errors.rs").read_text(encoding="utf-8")
+    enum = errors_rs.split("pub enum DrasiErrorCode {", 1)[1].split("\n}", 1)[0]
+    variants = re.findall(r"^\s{4}(\w+),$", enum, re.M)
+    assert variants, "no error code variants found in errors.rs"
+
+    raised = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in source.rglob("*.rs")
+        if path.name != "errors.rs"
+    )
+    unreachable = [v for v in set(variants) if f"DrasiErrorCode::{v}" not in raised]
+    assert not unreachable, (
+        "error codes that nothing raises, so nobody can catch them: "
+        + ", ".join(sorted(unreachable))
+    )
+
+
 def test_documented_recovery_policies_match_the_type() -> None:
     guide = (CONTENT / "docs" / "guides" / "python-reactions.md").read_text(encoding="utf-8")
     section = guide.split("| Policy | Behaviour |")[1].split("\n\n")[0]

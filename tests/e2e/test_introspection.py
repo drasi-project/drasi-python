@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from drasi import Drasi, DrasiError, UnknownKindError
+from drasi import ConfigError, Drasi, DrasiError, UnknownKindError
 
 from .helpers import wait_for_query_running, wait_for_rows
 
@@ -198,3 +198,25 @@ async def test_unknown_bootstrap_schema_kind_is_rejected(engine: Drasi) -> None:
     with pytest.raises(UnknownKindError) as caught:
         await engine.bootstrap_config_schema("missing")
     assert caught.value.code == "UNKNOWN_BOOTSTRAP_KIND"
+
+
+async def test_unknown_secret_store_schema_kind_is_rejected(engine: Drasi) -> None:
+    with pytest.raises(UnknownKindError) as caught:
+        await engine.secret_store_config_schema("missing")
+    assert caught.value.code == "UNKNOWN_SECRET_STORE_KIND"
+
+
+async def test_the_engine_reports_the_id_it_was_created_with(engine: Drasi) -> None:
+    """`id` is a property rather than a method, so it is easy to leave untested."""
+    named = await Drasi.create("a-particular-name")
+    try:
+        assert named.id == "a-particular-name"
+    finally:
+        await named.close()
+
+
+async def test_a_bootstrap_block_without_a_kind_is_rejected(engine: Drasi) -> None:
+    await engine.start()
+    with pytest.raises(ConfigError) as caught:
+        await engine.add_source("postgres", "db", {}, bootstrap={"host": "localhost"})
+    assert caught.value.code == "BOOTSTRAP_KIND_REQUIRED"

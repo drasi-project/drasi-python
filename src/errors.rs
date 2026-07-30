@@ -42,9 +42,7 @@ pub enum DrasiErrorCode {
     UnknownBootstrapKind,
     UnknownSecretStoreKind,
     BootstrapKindRequired,
-    MissingConfigField,
     NoPySource,
-    PySourceClosed,
     ChangeNotObject,
     ChangeOpRequired,
     ChangeIdRequired,
@@ -76,9 +74,7 @@ impl DrasiErrorCode {
             Self::UnknownBootstrapKind => "UNKNOWN_BOOTSTRAP_KIND",
             Self::UnknownSecretStoreKind => "UNKNOWN_SECRET_STORE_KIND",
             Self::BootstrapKindRequired => "BOOTSTRAP_KIND_REQUIRED",
-            Self::MissingConfigField => "MISSING_CONFIG_FIELD",
             Self::NoPySource => "NO_PY_SOURCE",
-            Self::PySourceClosed => "PY_SOURCE_CLOSED",
             Self::ChangeNotObject => "CHANGE_NOT_OBJECT",
             Self::ChangeOpRequired => "CHANGE_OP_REQUIRED",
             Self::ChangeIdRequired => "CHANGE_ID_REQUIRED",
@@ -112,9 +108,7 @@ impl DrasiErrorCode {
             UnknownBootstrapKind,
             UnknownSecretStoreKind,
             BootstrapKindRequired,
-            MissingConfigField,
             NoPySource,
-            PySourceClosed,
             ChangeNotObject,
             ChangeOpRequired,
             ChangeIdRequired,
@@ -154,7 +148,6 @@ impl DrasiErrorCode {
             | UnknownChangeOp => py.get_type::<UnknownKindError>().into(),
 
             BootstrapKindRequired
-            | MissingConfigField
             | StateStorePathRequired
             | IndexStorePathRequired
             | IdentityKindRequired
@@ -163,7 +156,6 @@ impl DrasiErrorCode {
             | ConfigInvalid => py.get_type::<ConfigError>().into(),
 
             NoPySource
-            | PySourceClosed
             | ChangeNotObject
             | ChangeOpRequired
             | ChangeIdRequired

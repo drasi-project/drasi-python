@@ -7,7 +7,16 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
-Nothing yet.
+### Removed
+
+- `MISSING_CONFIG_FIELD` and `PY_SOURCE_CLOSED` error codes. Nothing raised
+  either, so nothing could catch them. The case `PY_SOURCE_CLOSED` documented —
+  pushing to a source that has been removed — raises `NO_PY_SOURCE`.
+
+### Changed
+
+- A `bootstrap` block without a `kind` now raises `BOOTSTRAP_KIND_REQUIRED`
+  rather than `CONFIG_INVALID`. The guide already documented the former.
 
 ## [0.1.4] - 2026-07-30
 
