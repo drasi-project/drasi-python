@@ -104,11 +104,8 @@ either of these:
 Deleting a project is also Owner-only, so a Manager cannot undo a mistaken
 creation either.
 
-This is a genuine defect in PyPI rather than a misconfiguration on our side.
-The project-creation view passes `creator_is_owner=False`, and `Project.__acl__`
-backfills permissions from an organization role only for **Owners** — so a
-Manager passes the permission gate to create a project and receives nothing on
-the result. Reported upstream as
+This is a PyPI-side limitation rather than a misconfiguration on our side,
+reported upstream as
 [pypi/warehouse#20337](https://github.com/pypi/warehouse/issues/20337).
 
 ### If the organization's "Manage" button is greyed out

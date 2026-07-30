@@ -129,15 +129,6 @@ engine:
 A durable reaction records how far it got, so after a restart it resumes rather than
 replaying from the beginning or silently skipping what it missed.
 
-{{% alert title="Known issue: restarting a Python source" color="warning" %}}
-After a restart, a query restores the sequence number it had reached, but a source added
-with `add_python_source()` starts counting from 1 again. The first *K* changes pushed
-after the restart are discarded as already-seen, where *K* is how many were pushed
-before it — [drasi-core#664](https://github.com/drasi-project/drasi-core/issues/664).
-
-Re-send those changes, or keep the query's index in memory so it rebuilds from scratch.
-{{% /alert %}}
-
 ## Next
 
 - [Guides](../guides/) — putting each piece to work.
