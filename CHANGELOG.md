@@ -7,7 +7,24 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- Query middleware, which transforms a source's changes before a query sees
+  them. `add_query` and `update_query` take `middleware=[...]` declaring named
+  instances, and a source entry may be a mapping naming the pipeline to run:
+  `{"id": "orders", "pipeline": ["flatten"]}`. A bare source id still means what
+  it did. `from_config` accepts both on a query entry.
+
+  `promote`, `unwind`, `map`, `parse_json`, `decoder` and `relabel` are compiled
+  in. `jq` is not: it links against libjq, and a C dependency would put the
+  cross-compiled Linux and Windows wheels at risk. Naming it raises rather than
+  silently doing nothing.
+
+  This was the one gap the API audit left open. `QueryConfig.middleware` has
+  always existed in `drasi-lib`, but nothing here read it, so a `middleware`
+  block passed to `from_config` was dropped as silently as a misspelled key.
+
+- `Middleware` and `SourceSubscription` in `drasi.types`.
 
 ## [0.1.3] - 2026-07-29
 

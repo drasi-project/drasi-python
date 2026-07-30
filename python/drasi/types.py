@@ -45,6 +45,7 @@ __all__ = [
     "LoadSummary",
     "LockedPlugin",
     "LogMessage",
+    "Middleware",
     "NodeSchema",
     "PluginKinds",
     "PluginSearchResult",
@@ -64,6 +65,7 @@ __all__ = [
     "SourceChange",
     "SourceConfig",
     "SourceSchema",
+    "SourceSubscription",
     "StateStore",
 ]
 
@@ -170,6 +172,36 @@ class JoinKey(TypedDict):
 class Join(TypedDict):
     id: str
     keys: Sequence[JoinKey]
+
+
+class _MiddlewareRequired(TypedDict):
+    name: str
+    kind: str
+
+
+class Middleware(_MiddlewareRequired, total=False):
+    """One middleware instance a query can run over a source's changes.
+
+    `name` is what a source's `pipeline` refers to, `kind` names the middleware
+    type to build it from, and `config` is that type's own configuration, which
+    is passed through untouched.
+    """
+
+    config: Mapping[str, Any]
+
+
+class _SourceSubscriptionRequired(TypedDict):
+    id: str
+
+
+class SourceSubscription(_SourceSubscriptionRequired, total=False):
+    """A source a query reads from, and the middleware to run over it.
+
+    Use this in place of a bare source id when the query needs a pipeline. The
+    names in `pipeline` must match the `name` of a declared middleware.
+    """
+
+    pipeline: Sequence[str]
 
 
 class _ResultDiffType(TypedDict):

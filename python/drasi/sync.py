@@ -57,6 +57,7 @@ from .types import (
     LoadSummary,
     LockedPlugin,
     LogMessage,
+    Middleware,
     PluginKinds,
     PluginSearchResult,
     PulledPlugin,
@@ -68,6 +69,7 @@ from .types import (
     ResolvedPlugin,
     SourceChange,
     SourceSchema,
+    SourceSubscription,
     StateStore,
 )
 
@@ -224,15 +226,22 @@ class Drasi:
         self,
         id: str,
         query: str,
-        sources: Sequence[str],
+        sources: Sequence[str | SourceSubscription],
         *,
         language: QueryLanguage = "cypher",
         joins: Sequence[Join] | None = None,
+        middleware: Sequence[Middleware] | None = None,
         **tuning: Any,
     ) -> None:
         _Loop.run(
             lambda: self._inner.add_query(
-                id, query, sources, language=language, joins=joins, **tuning
+                id,
+                query,
+                sources,
+                language=language,
+                joins=joins,
+                middleware=middleware,
+                **tuning,
             )
         )
 
@@ -240,15 +249,22 @@ class Drasi:
         self,
         id: str,
         query: str,
-        sources: Sequence[str],
+        sources: Sequence[str | SourceSubscription],
         *,
         language: QueryLanguage = "cypher",
         joins: Sequence[Join] | None = None,
+        middleware: Sequence[Middleware] | None = None,
         **tuning: Any,
     ) -> None:
         _Loop.run(
             lambda: self._inner.update_query(
-                id, query, sources, language=language, joins=joins, **tuning
+                id,
+                query,
+                sources,
+                language=language,
+                joins=joins,
+                middleware=middleware,
+                **tuning,
             )
         )
 

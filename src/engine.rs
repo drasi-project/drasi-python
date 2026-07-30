@@ -543,7 +543,7 @@ impl Drasi {
 
     /// Registers a continuous query over one or more sources.
     #[pyo3(signature = (
-        id, query, sources, *, language = "cypher", joins = None,
+        id, query, sources, *, language = "cypher", joins = None, middleware = None,
         auto_start = None, enable_bootstrap = None, bootstrap_timeout_seconds = None,
         priority_queue_capacity = None, dispatch_buffer_capacity = None,
         outbox_capacity = None, dispatch_mode = None,
@@ -554,9 +554,10 @@ impl Drasi {
         py: Python<'py>,
         id: String,
         query: String,
-        sources: Vec<String>,
+        sources: &Bound<'py, PyAny>,
         language: &str,
         joins: Option<&Bound<'py, PyAny>>,
+        middleware: Option<&Bound<'py, PyAny>>,
         auto_start: Option<bool>,
         enable_bootstrap: Option<bool>,
         bootstrap_timeout_seconds: Option<u64>,
@@ -568,9 +569,10 @@ impl Drasi {
         let config = build_query(
             &id,
             &query,
-            &sources,
+            &parse_source_subscriptions(sources)?,
             language,
             joins,
+            middleware,
             QueryTuning {
                 auto_start,
                 enable_bootstrap,
@@ -588,7 +590,7 @@ impl Drasi {
 
     /// Replaces the definition of an existing query.
     #[pyo3(signature = (
-        id, query, sources, *, language = "cypher", joins = None,
+        id, query, sources, *, language = "cypher", joins = None, middleware = None,
         auto_start = None, enable_bootstrap = None, bootstrap_timeout_seconds = None,
         priority_queue_capacity = None, dispatch_buffer_capacity = None,
         outbox_capacity = None, dispatch_mode = None,
@@ -599,9 +601,10 @@ impl Drasi {
         py: Python<'py>,
         id: String,
         query: String,
-        sources: Vec<String>,
+        sources: &Bound<'py, PyAny>,
         language: &str,
         joins: Option<&Bound<'py, PyAny>>,
+        middleware: Option<&Bound<'py, PyAny>>,
         auto_start: Option<bool>,
         enable_bootstrap: Option<bool>,
         bootstrap_timeout_seconds: Option<u64>,
@@ -613,9 +616,10 @@ impl Drasi {
         let config = build_query(
             &id,
             &query,
-            &sources,
+            &parse_source_subscriptions(sources)?,
             language,
             joins,
+            middleware,
             QueryTuning {
                 auto_start,
                 enable_bootstrap,
@@ -2115,12 +2119,14 @@ pub struct QueryTuning {
 }
 
 /// Builds a query configuration, validating the language up front.
+#[allow(clippy::too_many_arguments)]
 fn build_query(
     id: &str,
     query: &str,
-    sources: &[String],
+    sources: &[(String, Vec<String>)],
     language: &str,
     joins: Option<&Bound<'_, PyAny>>,
+    middleware: Option<&Bound<'_, PyAny>>,
     tuning: QueryTuning,
 ) -> PyResult<drasi_lib::config::QueryConfig> {
     let mut builder = match language.trim().to_ascii_lowercase().as_str() {
@@ -2135,8 +2141,17 @@ fn build_query(
     };
 
     builder = builder.query(query);
-    for source in sources {
-        builder = builder.from_source(source);
+    for (source, pipeline) in sources {
+        builder = if pipeline.is_empty() {
+            builder.from_source(source)
+        } else {
+            builder.from_source_with_pipeline(source, pipeline.clone())
+        };
+    }
+    if let Some(middleware) = middleware {
+        for declaration in parse_middleware(middleware)? {
+            builder = builder.with_middleware(declaration);
+        }
     }
     if let Some(joins) = joins {
         builder = builder.with_joins(parse_joins(joins)?);
@@ -2393,6 +2408,100 @@ fn parse_bootstrap(value: &Bound<'_, PyAny>) -> PyResult<(String, serde_json::Va
     Ok((kind, config))
 }
 
+/// Parses a query's source subscriptions.
+///
+/// An entry is either a bare source id, or a mapping that also names the
+/// middleware pipeline to run over that source's changes:
+/// `{"id": "orders", "pipeline": ["unpack"]}`. The names in `pipeline` refer to
+/// middleware declared in the same query's `middleware` argument.
+fn parse_source_subscriptions(
+    sources: &Bound<'_, PyAny>,
+) -> PyResult<Vec<(String, Vec<String>)>> {
+    let mut parsed = Vec::new();
+    for entry in sources.try_iter()? {
+        let entry = entry?;
+        if let Ok(id) = entry.extract::<String>() {
+            parsed.push((id, Vec::new()));
+            continue;
+        }
+
+        let mapping = entry.cast::<PyDict>().map_err(|_| {
+            config_error(
+                "each source must be a string, or a mapping such as \
+                 {'id': 'orders', 'pipeline': ['unpack']}",
+            )
+        })?;
+        let id: String = mapping
+            .get_item("id")?
+            .filter(|value| !value.is_none())
+            .ok_or_else(|| config_error("a source mapping is missing 'id'"))?
+            .extract()
+            .map_err(|_| config_error("a source's 'id' must be a string"))?;
+        let pipeline: Vec<String> = match mapping.get_item("pipeline")? {
+            Some(value) if !value.is_none() => value.extract().map_err(|_| {
+                config_error("a source's 'pipeline' must be a sequence of middleware names")
+            })?,
+            _ => Vec::new(),
+        };
+        parsed.push((id, pipeline));
+    }
+    Ok(parsed)
+}
+
+/// Parses query middleware declarations.
+///
+/// Each entry names an instance (`name`), the middleware type to build it from
+/// (`kind`), and that type's own configuration (`config`). A declaration only
+/// takes effect where a source's `pipeline` names it.
+fn parse_middleware(
+    value: &Bound<'_, PyAny>,
+) -> PyResult<Vec<drasi_core::models::SourceMiddlewareConfig>> {
+    let mut parsed = Vec::new();
+    for entry in value.try_iter()? {
+        let entry = entry?;
+        let mut declaration = py_to_json(&entry)?;
+        let object = declaration
+            .as_object_mut()
+            .ok_or_else(|| config_error("each middleware entry must be a mapping"))?;
+
+        let name = match object.remove("name") {
+            Some(serde_json::Value::String(name)) => name,
+            Some(_) => return Err(config_error("a middleware 'name' must be a string")),
+            None => {
+                return Err(config_error(
+                    "a middleware entry needs a 'name', which is what a source's \
+                     'pipeline' refers to",
+                ))
+            }
+        };
+        let kind = match object.remove("kind") {
+            Some(serde_json::Value::String(kind)) => kind,
+            Some(_) => return Err(config_error("a middleware 'kind' must be a string")),
+            None => {
+                return Err(config_error(format!(
+                    "middleware '{name}' needs a 'kind' naming the middleware type"
+                )))
+            }
+        };
+        let config = match object.remove("config") {
+            Some(serde_json::Value::Object(config)) => config,
+            Some(serde_json::Value::Null) | None => serde_json::Map::new(),
+            Some(_) => {
+                return Err(config_error(format!(
+                    "middleware '{name}' has a 'config' that is not a mapping"
+                )))
+            }
+        };
+
+        parsed.push(drasi_core::models::SourceMiddlewareConfig {
+            kind: Arc::from(kind.as_str()),
+            name: Arc::from(name.as_str()),
+            config,
+        });
+    }
+    Ok(parsed)
+}
+
 fn parse_component_configs(
     config: &Bound<'_, PyDict>,
     key: &str,
@@ -2471,11 +2580,10 @@ fn parse_query_configs(
             .ok_or_else(|| config_error(format!("query '{id}' is missing 'query'")))?
             .extract()
             .map_err(|_| config_error("'query' must be a string"))?;
-        let sources: Vec<String> = entry
+        let sources = entry
             .get_item("sources")?
-            .ok_or_else(|| config_error(format!("query '{id}' is missing 'sources'")))?
-            .extract()
-            .map_err(|_| config_error("'sources' must be a sequence of strings"))?;
+            .ok_or_else(|| config_error(format!("query '{id}' is missing 'sources'")))?;
+        let sources = parse_source_subscriptions(&sources)?;
         let language: String = match entry.get_item("language")?.filter(|v| !v.is_none()) {
             Some(value) => value
                 .extract()
@@ -2483,6 +2591,9 @@ fn parse_query_configs(
             None => "cypher".to_string(),
         };
         let joins = entry.get_item("joins")?.filter(|value| !value.is_none());
+        let middleware = entry
+            .get_item("middleware")?
+            .filter(|value| !value.is_none());
 
         parsed.push(build_query(
             &id,
@@ -2490,6 +2601,7 @@ fn parse_query_configs(
             &sources,
             &language,
             joins.as_ref(),
+            middleware.as_ref(),
             QueryTuning::default(),
         )?);
     }
