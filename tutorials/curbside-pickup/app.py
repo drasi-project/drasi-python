@@ -168,21 +168,19 @@ def main() -> None:
     render_sidebar(engine, snapshot["activity"])
 
     top = st.columns(4)
-    with top[0]:
+    with top[0], st.container(border=True):
         order_panel(results.get(ORDERS_PREPARING, []), ready=False, engine=engine)
-    with top[1]:
+    with top[1], st.container(border=True):
         order_panel(results.get(ORDERS_READY, []), ready=True, engine=engine)
-    with top[2]:
+    with top[2], st.container(border=True):
         vehicle_panel(results.get(VEHICLES_PARKING, []), curbside=False, engine=engine)
-    with top[3]:
+    with top[3], st.container(border=True):
         vehicle_panel(results.get(VEHICLES_CURBSIDE, []), curbside=True, engine=engine)
 
-    st.divider()
-
     bottom = st.columns(2)
-    with bottom[0]:
+    with bottom[0], st.container(border=True):
         matched_panel(results.get(DELIVERY, []))
-    with bottom[1]:
+    with bottom[1], st.container(border=True):
         delayed_panel(results.get(DELAY, []))
 
 
