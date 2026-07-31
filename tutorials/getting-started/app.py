@@ -69,39 +69,8 @@ SOURCE_CONFIG = {
 # The bootstrap provider loads the rows that already exist when a query starts.
 BOOTSTRAP_CONFIG = {"kind": "postgres", **POSTGRES}
 
-# --- The three continuous queries -------------------------------------------
-# They build up in complexity: a filter, an aggregation, and a temporal query
-# that detects the *absence* of change.
-QUERIES = {
-    # Filter: messages whose text is exactly "Hello World", and who sent them.
-    "hello-world-from": """
-        MATCH (m:message)
-        WHERE m.message = 'Hello World'
-        RETURN m.messageid AS MessageId, m.sender AS MessageFrom
-    """,
-    # Aggregation: how many times each distinct message has been sent.
-    "message-count": """
-        MATCH (m:message)
-        RETURN m.message AS Message, count(m) AS Frequency
-    """,
-    # Absence of change: senders who have not sent a message in the last 20
-    # seconds. drasi.trueLater schedules a future re-evaluation so a sender
-    # appears the instant they cross the threshold, not only when some other
-    # change happens.
-    "inactive-people": """
-        MATCH (m:message)
-        WITH m.sender AS MessageFrom, max(drasi.changeDateTime(m)) AS LastMessageTimestamp
-        WHERE LastMessageTimestamp <= datetime.realtime() - duration({ seconds: 20 })
-           OR drasi.trueLater(
-                LastMessageTimestamp <= datetime.realtime() - duration({ seconds: 20 }),
-                LastMessageTimestamp + duration({ seconds: 20 })
-              )
-        RETURN MessageFrom, LastMessageTimestamp
-    """,
-}
-
 # How long a sender can be quiet before inactive-people flags them (matches the
-# duration in the query). Shown in the startup banner.
+# duration in the inactive-people query below). Shown in the startup banner.
 INACTIVITY_SECONDS = 20
 
 
@@ -140,21 +109,65 @@ async def main() -> None:
 
         await drasi.add_source("postgres", "messages", SOURCE_CONFIG, bootstrap=BOOTSTRAP_CONFIG)
 
-        for query_id, cypher in QUERIES.items():
-            await drasi.add_query(query_id, cypher, ["messages"])
-        for query_id in QUERIES:
+        # Add the three continuous queries, in place. They build up in
+        # complexity: a filter, an aggregation, and a temporal query that
+        # detects the *absence* of change.
+
+        # Filter: messages whose text is exactly "Hello World", and who sent them.
+        await drasi.add_query(
+            "hello-world-from",
+            """
+            MATCH (m:message)
+            WHERE m.message = 'Hello World'
+            RETURN m.messageid AS MessageId, m.sender AS MessageFrom
+            """,
+            ["messages"],
+        )
+
+        # Aggregation: how many times each distinct message has been sent.
+        await drasi.add_query(
+            "message-count",
+            """
+            MATCH (m:message)
+            RETURN m.message AS Message, count(m) AS Frequency
+            """,
+            ["messages"],
+        )
+
+        # Absence of change: senders who have not sent a message in the last 20
+        # seconds. drasi.trueLater schedules a future re-evaluation so a sender
+        # appears the instant they cross the threshold, not only when some other
+        # change happens.
+        await drasi.add_query(
+            "inactive-people",
+            """
+            MATCH (m:message)
+            WITH m.sender AS MessageFrom, max(drasi.changeDateTime(m)) AS LastMessageTimestamp
+            WHERE LastMessageTimestamp <= datetime.realtime() - duration({ seconds: 20 })
+               OR drasi.trueLater(
+                    LastMessageTimestamp <= datetime.realtime() - duration({ seconds: 20 }),
+                    LastMessageTimestamp + duration({ seconds: 20 })
+                  )
+            RETURN MessageFrom, LastMessageTimestamp
+            """,
+            ["messages"],
+        )
+
+        # Wait for all three to bootstrap their initial result sets.
+        query_ids = ["hello-world-from", "message-count", "inactive-people"]
+        for query_id in query_ids:
             await drasi.wait_for_query(query_id, timeout=60)
 
         # Show the state each query bootstrapped from the existing rows.
         print("\n=== Initial results ===")
-        for query_id in QUERIES:
+        for query_id in query_ids:
             rows = await drasi.get_query_results(query_id)
             print(f"\n[{query_id}] {len(rows)} row(s):")
             for row in rows:
                 print(f"  {_row(row)}")
 
         # From here on, print changes as they arrive.
-        await drasi.add_python_reaction("console", list(QUERIES), on_change)
+        await drasi.add_python_reaction("console", query_ids, on_change)
 
         print(
             f"\n=== Watching for changes (Ctrl+C to stop) ===\n"

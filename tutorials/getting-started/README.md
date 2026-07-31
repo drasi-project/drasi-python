@@ -229,7 +229,9 @@ def on_change(event):
                 print(f"[{query_id}] ~ {before} -> {after}")
 
 
-await drasi.add_python_reaction("console", list(QUERIES), on_change)
+await drasi.add_python_reaction(
+    "console", ["hello-world-from", "message-count", "inactive-people"], on_change
+)
 ```
 
 An `ADD` and a `DELETE` carry `data`; an `UPDATE` — and an `aggregation` change, like a `count` ticking up — carries `before` and `after`. After registering the reaction the app just `await asyncio.Event().wait()`s, so it stays in the foreground printing changes until you press Ctrl+C. See [Python reactions](../../guides/python-reactions/) for the full callback contract, or [Streaming results](../../guides/streaming/) to consume the same changes as an async iterator instead.
@@ -265,29 +267,6 @@ SOURCE_CONFIG = {
 }
 BOOTSTRAP_CONFIG = {"kind": "postgres", **POSTGRES}
 
-# --- The three continuous queries ---
-QUERIES = {
-    "hello-world-from": """
-        MATCH (m:message)
-        WHERE m.message = 'Hello World'
-        RETURN m.messageid AS MessageId, m.sender AS MessageFrom
-    """,
-    "message-count": """
-        MATCH (m:message)
-        RETURN m.message AS Message, count(m) AS Frequency
-    """,
-    "inactive-people": """
-        MATCH (m:message)
-        WITH m.sender AS MessageFrom, max(drasi.changeDateTime(m)) AS LastMessageTimestamp
-        WHERE LastMessageTimestamp <= datetime.realtime() - duration({ seconds: 20 })
-           OR drasi.trueLater(
-                LastMessageTimestamp <= datetime.realtime() - duration({ seconds: 20 }),
-                LastMessageTimestamp + duration({ seconds: 20 })
-              )
-        RETURN MessageFrom, LastMessageTimestamp
-    """,
-}
-
 
 def row(r):
     return "  ".join(f"{k}={v!r}" for k, v in r.items())
@@ -314,17 +293,51 @@ async def main():
         await drasi.start()
 
         await drasi.add_source("postgres", "messages", SOURCE_CONFIG, bootstrap=BOOTSTRAP_CONFIG)
-        for query_id, cypher in QUERIES.items():
-            await drasi.add_query(query_id, cypher, ["messages"])
-        for query_id in QUERIES:
+
+        # Add the three continuous queries, in place: a filter, an aggregation,
+        # and a temporal query that detects the absence of change.
+        await drasi.add_query(
+            "hello-world-from",
+            """
+            MATCH (m:message)
+            WHERE m.message = 'Hello World'
+            RETURN m.messageid AS MessageId, m.sender AS MessageFrom
+            """,
+            ["messages"],
+        )
+        await drasi.add_query(
+            "message-count",
+            """
+            MATCH (m:message)
+            RETURN m.message AS Message, count(m) AS Frequency
+            """,
+            ["messages"],
+        )
+        await drasi.add_query(
+            "inactive-people",
+            """
+            MATCH (m:message)
+            WITH m.sender AS MessageFrom, max(drasi.changeDateTime(m)) AS LastMessageTimestamp
+            WHERE LastMessageTimestamp <= datetime.realtime() - duration({ seconds: 20 })
+               OR drasi.trueLater(
+                    LastMessageTimestamp <= datetime.realtime() - duration({ seconds: 20 }),
+                    LastMessageTimestamp + duration({ seconds: 20 })
+                  )
+            RETURN MessageFrom, LastMessageTimestamp
+            """,
+            ["messages"],
+        )
+
+        query_ids = ["hello-world-from", "message-count", "inactive-people"]
+        for query_id in query_ids:
             await drasi.wait_for_query(query_id, timeout=60)
 
         print("=== Initial results ===")
-        for query_id in QUERIES:
+        for query_id in query_ids:
             for r in await drasi.get_query_results(query_id):
                 print(f"[{query_id}]   {row(r)}")
 
-        await drasi.add_python_reaction("console", list(QUERIES), on_change)
+        await drasi.add_python_reaction("console", query_ids, on_change)
         print("=== Watching for changes (Ctrl+C to stop) ===")
         await asyncio.Event().wait()
 
