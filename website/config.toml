@@ -67,6 +67,11 @@ defaultContentLanguageInSubdir = false
     target = "content"
 
   [[module.mounts]]
+    source = "../tutorials/getting-started"
+    target = "content/docs/tutorials/getting-started"
+    includeFiles = ["/_index.md", "/images/**"]
+
+  [[module.mounts]]
     source = "../tutorials/building-comfort"
     target = "content/docs/tutorials/building-comfort"
     # Only the write-up and its images are docs; the app code is not.

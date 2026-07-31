@@ -1,0 +1,11 @@
+# Local environment overrides
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Drasi engine state / logs
+data/
+*.log

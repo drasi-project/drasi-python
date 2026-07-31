@@ -1,0 +1,8 @@
+# Getting Started tutorial dependencies.
+#
+#   pip install -r requirements.txt
+#
+# drasi-lib is the Python binding for Drasi's embeddable engine. It downloads the
+# Postgres source/bootstrap plugins from ghcr.io at runtime, so the first run
+# needs network access. The app only reads and reacts, so it needs nothing else.
+drasi-lib>=0.2,<1

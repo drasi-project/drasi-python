@@ -15,6 +15,15 @@ in the repository (runnable code plus its write-up), so you can read it here or
 clone it and run it locally.
 
 <div class="card-grid card-grid--2">
+  <a href="getting-started/">
+    <div class="unified-card unified-card--tutorials">
+      <div class="unified-card-icon"><i class="fas fa-terminal"></i></div>
+      <div class="unified-card-content">
+        <h3 class="unified-card-title">Getting Started</h3>
+        <p class="unified-card-summary">Connect Drasi to a live PostgreSQL feed and build three continuous queries (filter, aggregate, and a temporal absence-of-change) in a small no-UI console app driven by a Python reaction.</p>
+      </div>
+    </div>
+  </a>
   <a href="building-comfort/">
     <div class="unified-card unified-card--tutorials">
       <div class="unified-card-icon"><i class="fas fa-building"></i></div>

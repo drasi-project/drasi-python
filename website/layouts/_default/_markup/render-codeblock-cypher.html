@@ -20,7 +20,7 @@
 {{- /* keywords */ -}}
 {{- $h = $h | replaceRE `(?i)\b(MATCH|OPTIONAL|WITH|WHERE|RETURN|MERGE|CREATE|DELETE|SET|REMOVE|UNWIND|ORDER|BY|SKIP|LIMIT|AS|CASE|WHEN|THEN|ELSE|END|AND|OR|XOR|NOT|IN|STARTS|ENDS|CONTAINS|IS|NULL|TRUE|FALSE|DISTINCT)\b` `<span class="k">$1</span>` -}}
 {{- /* functions called as name( — includes Drasi's Cypher extension functions */ -}}
-{{- $h = $h | replaceRE `\b(avg|count|sum|min|max|collect|floor|ceil|round|abs|coalesce|toInteger|toFloat|size|length|duration|trueFor|changeDateTime|getVersionByTimestamp|listMax|listMin)(\s*\()` `<span class="nf">$1</span>$2` -}}
+{{- $h = $h | replaceRE `\b(avg|count|sum|min|max|collect|floor|ceil|round|abs|coalesce|toInteger|toFloat|size|length|duration|trueFor|trueLater|changeDateTime|getVersionByTimestamp|realtime|listMax|listMin)(\s*\()` `<span class="nf">$1</span>$2` -}}
 {{- /* node / relationship labels after a colon */ -}}
 {{- $h = $h | replaceRE `:([A-Za-z_][A-Za-z0-9_]*)` `:<span class="nl">$1</span>` -}}
 {{- /* numbers */ -}}
