@@ -259,11 +259,13 @@ def on_results(event):
     with lock:
         store = snapshot[query.id]  # this query's rows, keyed by id; the UI reads it
         for diff in event["results"]:
-            row = diff.get("data") or diff.get("after")
-            if diff["type"] == "DELETE":
-                store.pop(row[query.key], None)
-            else:  # ADD or UPDATE: upsert by row identity
-                store[row[query.key]] = row
+            match diff:
+                case {"type": "DELETE", "data": dict() as row}:
+                    store.pop(row[query.key], None)
+                case {"after": dict() as row} | {
+                    "data": dict() as row
+                }:  # ADD / UPDATE / aggregation
+                    store[row[query.key]] = row
 
 
 await drasi.add_python_reaction("ui", [q.id for q in QUERIES], on_results)

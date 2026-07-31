@@ -214,24 +214,25 @@ RETURN MessageFrom, LastMessageTimestamp
 
 ### The Python Reaction
 
-Instead of a dashboard or an SSE stream, a single **Python reaction** subscribed to all three queries prints each change to the console:
+Instead of a dashboard or an SSE stream, a single **Python reaction** subscribed to all three queries prints each change to the console. Structural pattern matching reads the diff's `type` and pulls out the payload it carries in one step:
 
 ```python
 def on_change(event):
     query_id = event["query_id"]
     for diff in event["results"]:
-        if diff["type"] == "ADD":
-            print(f"[{query_id}] + {diff['data']}")
-        elif diff["type"] == "DELETE":
-            print(f"[{query_id}] - {diff['data']}")
-        else:  # UPDATE
-            print(f"[{query_id}] ~ {diff['before']} -> {diff['after']}")
+        match diff:
+            case {"type": "ADD", "data": data}:
+                print(f"[{query_id}] + {data}")
+            case {"type": "DELETE", "data": data}:
+                print(f"[{query_id}] - {data}")
+            case {"type": "UPDATE" | "aggregation", "before": before, "after": after}:
+                print(f"[{query_id}] ~ {before} -> {after}")
 
 
 await drasi.add_python_reaction("console", [q.id for q in QUERIES], on_change)
 ```
 
-`type` tells you which of `data`, or `before` and `after`, a diff carries. After registering the reaction the app just `await asyncio.Event().wait()`s, so it stays in the foreground printing changes until you press Ctrl+C. See [Python reactions](../../guides/python-reactions/) for the full callback contract, or [Streaming results](../../guides/streaming/) to consume the same changes as an async iterator instead.
+An `ADD` and a `DELETE` carry `data`; an `UPDATE` — and an `aggregation` change, like a `count` ticking up — carries `before` and `after`. After registering the reaction the app just `await asyncio.Event().wait()`s, so it stays in the foreground printing changes until you press Ctrl+C. See [Python reactions](../../guides/python-reactions/) for the full callback contract, or [Streaming results](../../guides/streaming/) to consume the same changes as an async iterator instead.
 
 ## Clean Up
 When you're finished, stop the app with **Ctrl+C** in Terminal 1, then remove the database container:

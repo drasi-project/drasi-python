@@ -65,12 +65,13 @@ def on_change(event: QueryResultEvent) -> None:
     """Print each way a query's result set changed (the console 'reaction')."""
     query_id = event["query_id"]
     for diff in event["results"]:
-        if diff["type"] == "ADD":
-            print(f"[{_stamp()}] [{query_id}] + {_row(diff['data'])}")
-        elif diff["type"] == "DELETE":
-            print(f"[{_stamp()}] [{query_id}] - {_row(diff['data'])}")
-        else:  # UPDATE
-            print(f"[{_stamp()}] [{query_id}] ~ {_row(diff['before'])} -> {_row(diff['after'])}")
+        match diff:
+            case {"type": "ADD", "data": data}:
+                print(f"[{_stamp()}] [{query_id}] + {_row(data)}")
+            case {"type": "DELETE", "data": data}:
+                print(f"[{_stamp()}] [{query_id}] - {_row(data)}")
+            case {"type": "UPDATE" | "aggregation", "before": before, "after": after}:
+                print(f"[{_stamp()}] [{query_id}] ~ {_row(before)} -> {_row(after)}")
 
 
 async def main() -> None:

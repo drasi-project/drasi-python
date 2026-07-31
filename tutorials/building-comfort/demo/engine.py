@@ -153,14 +153,13 @@ class ComfortEngine:
         with self._lock:
             store = self._results.setdefault(query_id, {})
             for diff in event["results"]:
-                row = diff.get("data") or diff.get("after")
-                if row is None:
-                    continue
-                key = row.get(key_field)
-                if diff["type"] == "DELETE":
-                    store.pop(key, None)
-                else:
-                    store[key] = row
+                match diff:
+                    case {"type": "DELETE", "data": dict() as row}:
+                        store.pop(row[key_field], None)
+                    case {"after": dict() as row} | {"data": dict() as row}:
+                        # ADD / UPDATE / aggregation: `after` is the new state
+                        # (aggregation diffs carry a null `data`), `data` covers ADD.
+                        store[row[key_field]] = row
             self._version += 1
 
     async def _load_room_ids(self) -> list[str]:
