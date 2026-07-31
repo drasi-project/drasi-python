@@ -50,17 +50,29 @@ try {
     }
 
     Write-Host "Waiting for PostgreSQL to be ready..."
+    $pgReady = $false
     for ($i = 1; $i -le 30; $i++) {
         docker exec curbside-pickup-postgres pg_isready -h localhost -U postgres -d RetailOperations 2>&1 | Out-Null
-        if ($LASTEXITCODE -eq 0) { Write-Host "PostgreSQL is ready!"; break }
+        if ($LASTEXITCODE -eq 0) { Write-Host "PostgreSQL is ready!"; $pgReady = $true; break }
         Write-Host "  Waiting... ($i/30)"; Start-Sleep -Seconds 2
+    }
+    if (-not $pgReady) {
+        Write-Host "Error: PostgreSQL did not become ready within the timeout."
+        Write-Host "Check logs with: docker logs curbside-pickup-postgres"
+        exit 1
     }
 
     Write-Host "Waiting for MySQL to be ready..."
+    $mysqlReady = $false
     for ($i = 1; $i -le 45; $i++) {
         docker exec curbside-pickup-mysql mysqladmin ping -h localhost -uroot -p"$MysqlRootPassword" 2>&1 | Out-Null
-        if ($LASTEXITCODE -eq 0) { Write-Host "MySQL is ready!"; break }
+        if ($LASTEXITCODE -eq 0) { Write-Host "MySQL is ready!"; $mysqlReady = $true; break }
         Write-Host "  Waiting... ($i/45)"; Start-Sleep -Seconds 2
+    }
+    if (-not $mysqlReady) {
+        Write-Host "Error: MySQL did not become ready within the timeout."
+        Write-Host "Check logs with: docker logs curbside-pickup-mysql"
+        exit 1
     }
 
     Write-Host ""

@@ -380,7 +380,7 @@ class ComfortEngine:
                     cur.execute('SELECT id FROM "Room" ORDER BY id')
                     return [row[0] for row in cur.fetchall()]
 
-        return await asyncio.get_event_loop().run_in_executor(None, _query)
+        return await asyncio.get_running_loop().run_in_executor(None, _query)
 
     # -- readiness -----------------------------------------------------------
 
@@ -434,7 +434,7 @@ class ComfortEngine:
         if enabled and self._sim_task is None:
             if not self._room_ids:
                 self._room_ids = await self._load_room_ids()
-            self._sim_task = asyncio.ensure_future(self._simulate())
+            self._sim_task = asyncio.create_task(self._simulate())
             self._simulation = True
         elif not enabled and self._sim_task is not None:
             self._sim_task.cancel()
@@ -442,7 +442,7 @@ class ComfortEngine:
             self._simulation = False
 
     async def _simulate(self) -> None:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         try:
             while True:
                 room = random.choice(self._room_ids)

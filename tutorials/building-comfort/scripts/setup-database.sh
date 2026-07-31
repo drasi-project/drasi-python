@@ -60,15 +60,23 @@ $COMPOSE_CMD up -d
 echo "Waiting for PostgreSQL to be ready..."
 MAX_RETRIES=30
 RETRY_COUNT=0
+POSTGRES_READY=false
 while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
     if docker exec building-comfort-postgres pg_isready -U postgres -d building_comfort &> /dev/null; then
         echo "PostgreSQL is ready!"
+        POSTGRES_READY=true
         break
     fi
     RETRY_COUNT=$((RETRY_COUNT + 1))
     echo "  Waiting... ($RETRY_COUNT/$MAX_RETRIES)"
     sleep 2
 done
+
+if [ "$POSTGRES_READY" != "true" ]; then
+    echo "Error: PostgreSQL did not become ready within the timeout."
+    echo "Check logs with: docker logs building-comfort-postgres"
+    exit 1
+fi
 
 if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
     echo "Error: PostgreSQL failed to start within the timeout"

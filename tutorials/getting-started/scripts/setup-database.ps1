@@ -46,10 +46,16 @@ try {
     }
 
     Write-Host "Waiting for PostgreSQL to be ready..."
+    $pgReady = $false
     for ($i = 1; $i -le 30; $i++) {
         docker exec getting-started-postgres pg_isready -h localhost -U postgres -d getting_started 2>&1 | Out-Null
-        if ($LASTEXITCODE -eq 0) { Write-Host "PostgreSQL is ready!"; break }
+        if ($LASTEXITCODE -eq 0) { Write-Host "PostgreSQL is ready!"; $pgReady = $true; break }
         Write-Host "  Waiting... ($i/30)"; Start-Sleep -Seconds 2
+    }
+    if (-not $pgReady) {
+        Write-Host "Error: PostgreSQL did not become ready within the timeout."
+        Write-Host "Check logs with: docker logs getting-started-postgres"
+        exit 1
     }
 
     Write-Host ""

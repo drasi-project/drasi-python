@@ -59,24 +59,40 @@ echo "Starting PostgreSQL and MySQL..."
 $COMPOSE_CMD up -d
 
 echo "Waiting for PostgreSQL to be ready..."
+POSTGRES_READY=false
 for i in $(seq 1 30); do
     if docker exec curbside-pickup-postgres pg_isready -h localhost -U postgres -d RetailOperations &> /dev/null; then
         echo "PostgreSQL is ready!"
+        POSTGRES_READY=true
         break
     fi
     echo "  Waiting... ($i/30)"
     sleep 2
 done
 
+if [ "$POSTGRES_READY" != "true" ]; then
+    echo "Error: PostgreSQL did not become ready within the timeout."
+    echo "Check logs with: docker logs curbside-pickup-postgres"
+    exit 1
+fi
+
 echo "Waiting for MySQL to be ready..."
+MYSQL_READY=false
 for i in $(seq 1 45); do
     if docker exec curbside-pickup-mysql mysqladmin ping -h localhost -uroot -p"$MYSQL_ROOT_PASSWORD" &> /dev/null; then
         echo "MySQL is ready!"
+        MYSQL_READY=true
         break
     fi
     echo "  Waiting... ($i/45)"
     sleep 2
 done
+
+if [ "$MYSQL_READY" != "true" ]; then
+    echo "Error: MySQL did not become ready within the timeout."
+    echo "Check logs with: docker logs curbside-pickup-mysql"
+    exit 1
+fi
 
 echo
 echo "Seeding PostgreSQL (orders)..."
