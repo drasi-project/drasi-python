@@ -135,7 +135,7 @@ This is the interesting one. Drasi doesn't poll to find slow orders — the **co
 Press **Reset everything** in the sidebar to return to the starting state (all orders *preparing*, all vehicles *Parking*).
 
 ## How It Works
-The whole demo is a single Streamlit program in `tutorials/curbside-pickup/`. The engine, queries and reaction live in `demo/`, and `app.py` renders the reaction's state and hosts the controls.
+The demo is two files in `tutorials/curbside-pickup/`: **`engine.py`** holds the two sources, the six queries, and the `CurbsideEngine` (its Python reaction and the SQL writes); **`app.py`** renders the reaction's state and hosts the controls. The [complete `engine.py`](#putting-it-all-together) is at the end.
 
 ### Two Sources
 
@@ -257,6 +257,180 @@ await drasi.add_python_reaction("ui", [q.id for q in QUERIES], on_results)
 The engine runs on its own asyncio event loop in a background daemon thread, created once with `@st.cache_resource`, and `app.py` reads `engine.snapshot()` each run and renders the six panels with a ~1-second auto-refresh. Because it's the same page, the panels can *also* drive the demo: each order and vehicle row has a button that runs the matching `UPDATE`, the sidebar has a **Reset** button, and every write is appended to the activity log the sidebar shows. A `delay` row appearing 10 seconds after you move a vehicle to the curbside is the reaction receiving `drasi.trueFor`'s scheduled re-evaluation — live, with no polling.
 
 <img src="images/curbside-ui.png" width="960" alt="The Curbside Pickup Streamlit UI: four panels of orders and vehicles with inline buttons across the top, Matched and Delayed panels below, and a sidebar with a reset button and a color-coded SQL activity log">
+
+## Putting It All Together
+The sections above walked through the Drasi side one piece at a time. Here it is assembled into the single `engine.py` — the two sources, the synthetic join, the six queries, and the `CurbsideEngine` that runs them and writes back. `app.py` (the Streamlit UI) imports `CurbsideEngine` and the query ids from it:
+
+```python
+import asyncio
+import os
+import threading
+import time
+from collections import deque
+from dataclasses import dataclass, field
+from typing import Any
+
+os.environ.setdefault("RUST_LOG", "warn")  # quiet the engine's INFO logging
+
+import psycopg
+import pymysql
+from drasi import Drasi
+
+# --- The two sources ---
+POSTGRES = {
+    "host": os.environ.get("POSTGRES_HOST", "localhost"),
+    "port": int(os.environ.get("POSTGRES_PORT", "5742")),
+    "database": os.environ.get("POSTGRES_DATABASE", "RetailOperations"),
+    "user": os.environ.get("POSTGRES_USER", "drasi_user"),
+    "password": os.environ.get("POSTGRES_PASSWORD", "drasi_password"),
+}
+POSTGRES_SOURCE_CONFIG = {
+    **POSTGRES,
+    "sslMode": "prefer",
+    "tables": ["public.orders"],
+    "tableKeys": [{"table": "orders", "keyColumns": ["id"]}],
+    "slotName": "drasi_curbside_slot",
+    "publicationName": "drasi_curbside_pub",
+}
+
+MYSQL = {
+    "host": os.environ.get("MYSQL_HOST", "localhost"),
+    "port": int(os.environ.get("MYSQL_PORT", "3309")),
+    "database": os.environ.get("MYSQL_DATABASE", "PhysicalOperations"),
+    "user": os.environ.get("MYSQL_USER", "drasi_user"),
+    "password": os.environ.get("MYSQL_PASSWORD", "drasi_password"),
+}
+MYSQL_SOURCE_CONFIG = {
+    **MYSQL,
+    "sslMode": "disabled",  # the tutorial container has no TLS
+    "tables": ["vehicles"],
+    "tableKeys": [{"table": "vehicles", "keyColumns": ["plate"]}],
+}
+# Each source also takes a bootstrap config, and the UI writes through a psycopg
+# (Postgres) and a PyMySQL (MySQL) connection built from the dicts above.
+
+RETAIL_OPS, PHYSICAL_OPS = "retail-ops", "physical-ops"
+
+# The synthetic join: match a vehicle to an order by equal plate, across databases.
+PICKUP_BY = {
+    "id": "PICKUP_BY",
+    "keys": [
+        {"label": "vehicles", "property": "plate"},
+        {"label": "orders", "property": "plate"},
+    ],
+}
+
+
+@dataclass(frozen=True)
+class Query:
+    id: str
+    key: str  # the RETURN column that identifies each row
+    sources: list[str]
+    cypher: str
+    joins: list[dict] = field(default_factory=list)
+
+
+QUERIES = [
+    # Four single-source list queries split orders and vehicles by state. Each has
+    # the same shape; orders-preparing is shown here, and orders-ready /
+    # vehicles-parking / vehicles-curbside flip the WHERE clause.
+    Query(
+        id="orders-preparing",
+        key="id",
+        sources=[RETAIL_OPS],
+        cypher="MATCH (o:orders) WHERE o.status <> 'ready' "
+        "RETURN o.id AS id, o.customer_name AS customerName, o.plate AS plate",
+    ),
+    # delivery: an order is ready AND its driver's vehicle is at the curbside.
+    Query(
+        id="delivery",
+        key="id",
+        sources=[RETAIL_OPS, PHYSICAL_OPS],
+        joins=[PICKUP_BY],
+        cypher="""
+        MATCH (o:orders)-[:PICKUP_BY]->(v:vehicles)
+        WHERE o.status = 'ready' AND v.location = 'Curbside'
+        RETURN o.id AS id, o.customer_name AS customerName, o.plate AS vehicleId
+        """,
+    ),
+    # delay: at the curbside over 10s while the order is still not ready.
+    Query(
+        id="delay",
+        key="orderId",
+        sources=[RETAIL_OPS, PHYSICAL_OPS],
+        joins=[PICKUP_BY],
+        cypher="""
+        MATCH (o:orders)-[:PICKUP_BY]->(v:vehicles)
+        WHERE o.status <> 'ready'
+          AND drasi.trueFor(v.location = 'Curbside', duration({ seconds: 10 }))
+        RETURN o.id AS orderId, o.customer_name AS customerName,
+               drasi.changeDateTime(v) AS waitingSinceTimestamp
+        """,
+    ),
+]
+
+
+class CurbsideEngine:
+    """Runs Drasi over two databases and exposes a thread-safe snapshot."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._results = {}  # query id -> {row key -> row}
+        self._key_by_id = {q.id: q.key for q in QUERIES}
+        self._activity = deque(maxlen=20)  # recent SQL writes for the sidebar
+        self._ready = threading.Event()
+        self._drasi = None
+        # Run the engine on its own event loop in a background thread.
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def _run(self):
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(self._start())
+        self._ready.set()
+        loop.run_forever()
+
+    async def _start(self):
+        self._drasi = await Drasi.create("curbside-pickup")
+        for plugin in ("source/postgres", "bootstrap/postgres", "source/mysql", "bootstrap/mysql"):
+            await self._drasi.install_plugin(plugin)
+        await self._drasi.start()
+
+        await self._drasi.add_source("postgres", RETAIL_OPS, POSTGRES_SOURCE_CONFIG, bootstrap=...)
+        await self._drasi.add_source("mysql", PHYSICAL_OPS, MYSQL_SOURCE_CONFIG, bootstrap=...)
+        for q in QUERIES:
+            await self._drasi.add_query(q.id, q.cypher, q.sources, joins=q.joins or None)
+        for q in QUERIES:
+            await self._drasi.wait_for_query(q.id)
+            rows = await self._drasi.get_query_results(q.id)
+            self._results[q.id] = {r[q.key]: r for r in rows}
+
+        await self._drasi.add_python_reaction("ui", [q.id for q in QUERIES], self._on_results)
+
+    def _on_results(self, event):
+        key = self._key_by_id[event["query_id"]]
+        with self._lock:
+            store = self._results.setdefault(event["query_id"], {})
+            for diff in event["results"]:
+                match diff:
+                    case {"type": "DELETE", "data": dict() as row}:
+                        store.pop(row[key], None)
+                    case {"after": dict() as row} | {"data": dict() as row}:
+                        store[row[key]] = row
+
+    def snapshot(self):
+        with self._lock:
+            return {
+                "results": {q: list(s.values()) for q, s in self._results.items()},
+                "activity": list(self._activity),
+            }
+
+    # set_order_status(id, status) writes to Postgres, set_vehicle_location(plate,
+    # location) writes to MySQL, and reset() returns everything to the start.
+    # Each records the SQL it ran in the activity log.
+```
+
+That's the whole Drasi side in one file: two databases joined by plate, six continuous queries (one temporal), and a reaction that keeps a snapshot the UI renders and drives.
 
 ## Clean Up
 When you're finished, stop the app with **Ctrl+C** in the terminal, then remove the database containers:

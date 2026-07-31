@@ -30,15 +30,15 @@ from __future__ import annotations
 from typing import Any
 
 import streamlit as st
-from demo.config import DELAY_SECONDS
-from demo.engine import CurbsideEngine
-from demo.queries import (
+from engine import (
     DELAY,
+    DELAY_SECONDS,
     DELIVERY,
     ORDERS_PREPARING,
     ORDERS_READY,
     VEHICLES_CURBSIDE,
     VEHICLES_PARKING,
+    CurbsideEngine,
 )
 from streamlit_autorefresh import st_autorefresh
 
