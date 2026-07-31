@@ -32,4 +32,7 @@ echo "On first run it downloads the Drasi plugins from ghcr.io — give it a mom
 echo
 
 cd "$TUTORIAL_DIR"
-exec streamlit run app.py --server.port "${STREAMLIT_PORT:-8501}"
+exec streamlit run app.py \
+    --server.port "${STREAMLIT_PORT:-8501}" \
+    --server.address=0.0.0.0 \
+    --server.headless=true

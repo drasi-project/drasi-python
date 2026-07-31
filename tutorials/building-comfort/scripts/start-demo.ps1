@@ -35,7 +35,7 @@ Write-Host ""
 $port = if ($env:STREAMLIT_PORT) { $env:STREAMLIT_PORT } else { "8501" }
 Push-Location $TutorialDir
 try {
-    streamlit run app.py --server.port $port
+    streamlit run app.py --server.port $port --server.address=0.0.0.0 --server.headless=true
 }
 finally {
     Pop-Location
