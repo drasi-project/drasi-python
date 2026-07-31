@@ -14,6 +14,9 @@
 
 """The embedded Drasi engine that powers the Streamlit UI.
 
+This one file holds everything behind the demo: the configuration, the six
+continuous queries, and the engine that runs them.
+
 Streamlit re-runs its script top to bottom on every interaction, which is a poor
 fit for a long-lived async engine. So the Drasi engine runs on its own asyncio
 event loop in a background daemon thread, created exactly once (Streamlit caches
@@ -45,6 +48,7 @@ os.environ.setdefault("RUST_LOG", "warn")
 import asyncio  # noqa: E402
 import random  # noqa: E402
 import threading  # noqa: E402
+from dataclasses import dataclass, field  # noqa: E402
 from typing import Any  # noqa: E402
 
 import psycopg  # noqa: E402
@@ -52,14 +56,221 @@ import psycopg  # noqa: E402
 from drasi import Drasi  # noqa: E402
 from drasi.types import QueryResultEvent  # noqa: E402
 
-from .config import (  # noqa: E402
-    BOOTSTRAP_CONFIG,
-    COMFORT_DEFAULTS,
-    PSYCOPG_CONNECTION,
-    SIMULATION_INTERVAL_S,
-    SOURCE_CONFIG,
-)
-from .queries import QUERIES  # noqa: E402
+# =============================================================================
+# Configuration -- everything read from the environment with defaults.
+# =============================================================================
+
+POSTGRES_HOST = os.environ.get("POSTGRES_HOST", "localhost")
+POSTGRES_PORT = int(os.environ.get("POSTGRES_PORT", "5732"))
+POSTGRES_DATABASE = os.environ.get("POSTGRES_DATABASE", "building_comfort")
+POSTGRES_USER = os.environ.get("POSTGRES_USER", "drasi_user")
+POSTGRES_PASSWORD = os.environ.get("POSTGRES_PASSWORD", "drasi_password")
+POSTGRES_SSLMODE = os.environ.get("POSTGRES_SSLMODE", "prefer")
+
+# The Drasi source plugin spells the connection keys the same way the Node.js
+# binding does (camelCase); Drasi passes plugin config through untouched.
+SOURCE_CONNECTION = {
+    "host": POSTGRES_HOST,
+    "port": POSTGRES_PORT,
+    "database": POSTGRES_DATABASE,
+    "user": POSTGRES_USER,
+    "password": POSTGRES_PASSWORD,
+    "sslMode": POSTGRES_SSLMODE,
+}
+
+# psycopg spells the database key ``dbname`` rather than ``database``. The demo
+# writes room updates directly to Postgres through this connection so Drasi
+# observes them via CDC -- exactly as a real building-management app would.
+PSYCOPG_CONNECTION = {
+    "host": POSTGRES_HOST,
+    "port": POSTGRES_PORT,
+    "dbname": POSTGRES_DATABASE,
+    "user": POSTGRES_USER,
+    "password": POSTGRES_PASSWORD,
+}
+
+# The Postgres source replicates these three tables. They are schema-qualified
+# here (``public.Room``) while ``tableKeys`` uses the bare table name; the node
+# label Drasi sees is the bare name, so the Cypher matches (r:Room) etc.
+SOURCE_CONFIG = {
+    **SOURCE_CONNECTION,
+    "tables": ["public.Building", "public.Floor", "public.Room"],
+    "tableKeys": [
+        {"table": "Building", "keyColumns": ["id"]},
+        {"table": "Floor", "keyColumns": ["id"]},
+        {"table": "Room", "keyColumns": ["id"]},
+    ],
+    "slotName": "drasi_building_comfort_slot",
+    "publicationName": "drasi_building_comfort_pub",
+}
+
+# The bootstrap provider loads the rows that already exist when the query starts,
+# so the dashboard is populated before any change arrives.
+BOOTSTRAP_CONFIG = {"kind": "postgres", **SOURCE_CONNECTION}
+
+# Comfortable defaults. floor(50 + (70-72) + (40-42) + 0) = 46, inside 40-50.
+COMFORT_DEFAULTS = {"temperature": 70, "humidity": 40, "co2": 10}
+
+# The comfortable band. A room, floor or building outside it raises an alert.
+COMFORT_MIN = 40
+COMFORT_MAX = 50
+
+# How often simulation mode assigns a random room new readings, in seconds.
+SIMULATION_INTERVAL_S = float(os.environ.get("SIMULATION_INTERVAL_S", "3"))
+
+# =============================================================================
+# The six continuous queries.
+# =============================================================================
+#
+# Each query is written out in full so you can read (or copy) exactly what Drasi
+# runs. They all compute the same comfort level:
+#
+#     floor(50 + (temperature - 72) + (humidity - 42)
+#           + CASE WHEN co2 > 500 THEN (co2 - 500) / 25 ELSE 0 END)
+#
+# A value between 40 and 50 is comfortable; the seed values (70F, 40%, 10 ppm)
+# give floor(50 + (70-72) + (40-42) + 0) = 46.
+#
+# The Room -> Floor -> Building hierarchy is walked through two *synthetic
+# joins*. Drasi does not read Postgres foreign keys, so each query declares the
+# relationships it needs -- Room.floor_id -> Floor.id, and Floor.building_id ->
+# Building.id -- as a plain mapping passed to ``add_query``.
+
+PART_OF_FLOOR = {
+    "id": "PART_OF_FLOOR",
+    "keys": [
+        {"label": "Room", "property": "floor_id"},
+        {"label": "Floor", "property": "id"},
+    ],
+}
+
+PART_OF_BUILDING = {
+    "id": "PART_OF_BUILDING",
+    "keys": [
+        {"label": "Floor", "property": "building_id"},
+        {"label": "Building", "property": "id"},
+    ],
+}
+
+# Query ids -- the UI reads each query's result set from the snapshot by these.
+BUILDING_COMFORT_UI = "building-comfort-ui"
+BUILDING_COMFORT_LEVEL = "building-comfort-level-calc"
+FLOOR_COMFORT_LEVEL = "floor-comfort-level-calc"
+ROOM_ALERT = "room-alert"
+FLOOR_ALERT = "floor-alert"
+BUILDING_ALERT = "building-alert"
+
+
+@dataclass(frozen=True)
+class Query:
+    """One continuous query: how to register it and how to index its rows."""
+
+    id: str
+    key: str  # the RETURN column that identifies each row (its primary key)
+    cypher: str
+    joins: list[dict[str, Any]] = field(default_factory=list)
+
+
+QUERIES = [
+    # One row per room, with its comfort level. Drives the building view.
+    Query(
+        id=BUILDING_COMFORT_UI,
+        key="RoomId",
+        joins=[PART_OF_FLOOR, PART_OF_BUILDING],
+        cypher="""
+        MATCH (r:Room)-[:PART_OF_FLOOR]->(f:Floor)-[:PART_OF_BUILDING]->(b:Building)
+        RETURN
+            r.id AS RoomId,
+            r.name AS RoomName,
+            f.id AS FloorId,
+            f.name AS FloorName,
+            b.id AS BuildingId,
+            b.name AS BuildingName,
+            r.temperature AS Temperature,
+            r.humidity AS Humidity,
+            r.co2 AS CO2,
+            floor(50 + (r.temperature - 72) + (r.humidity - 42)
+                  + CASE WHEN r.co2 > 500 THEN (r.co2 - 500) / 25 ELSE 0 END) AS ComfortLevel
+        """,
+    ),
+    # The building's overall comfort: the average of each floor's average.
+    Query(
+        id=BUILDING_COMFORT_LEVEL,
+        key="BuildingId",
+        joins=[PART_OF_FLOOR, PART_OF_BUILDING],
+        cypher="""
+        MATCH (r:Room)-[:PART_OF_FLOOR]->(f:Floor)-[:PART_OF_BUILDING]->(b:Building)
+        WITH b, f,
+            floor(50 + (r.temperature - 72) + (r.humidity - 42)
+                  + CASE WHEN r.co2 > 500 THEN (r.co2 - 500) / 25 ELSE 0 END) AS RoomComfortLevel
+        WITH b, avg(RoomComfortLevel) AS FloorComfortLevel
+        WITH b, avg(FloorComfortLevel) AS ComfortLevel
+        RETURN b.id AS BuildingId, ComfortLevel
+        """,
+    ),
+    # Each floor's comfort: the average of the rooms on it.
+    Query(
+        id=FLOOR_COMFORT_LEVEL,
+        key="FloorId",
+        joins=[PART_OF_FLOOR],
+        cypher="""
+        MATCH (r:Room)-[:PART_OF_FLOOR]->(f:Floor)
+        WITH f,
+            floor(50 + (r.temperature - 72) + (r.humidity - 42)
+                  + CASE WHEN r.co2 > 500 THEN (r.co2 - 500) / 25 ELSE 0 END) AS RoomComfortLevel
+        WITH f, avg(RoomComfortLevel) AS ComfortLevel
+        RETURN f.id AS FloorId, ComfortLevel
+        """,
+    ),
+    # Only the rooms whose comfort is outside the 40-50 band.
+    Query(
+        id=ROOM_ALERT,
+        key="RoomId",
+        cypher="""
+        MATCH (r:Room)
+        WITH r.id AS RoomId, r.name AS RoomName,
+            floor(50 + (r.temperature - 72) + (r.humidity - 42)
+                  + CASE WHEN r.co2 > 500 THEN (r.co2 - 500) / 25 ELSE 0 END) AS ComfortLevel
+        WHERE ComfortLevel < 40 OR ComfortLevel > 50
+        RETURN RoomId, RoomName, ComfortLevel
+        """,
+    ),
+    # Only the floors whose average comfort is outside the 40-50 band.
+    Query(
+        id=FLOOR_ALERT,
+        key="FloorId",
+        joins=[PART_OF_FLOOR],
+        cypher="""
+        MATCH (r:Room)-[:PART_OF_FLOOR]->(f:Floor)
+        WITH f,
+            floor(50 + (r.temperature - 72) + (r.humidity - 42)
+                  + CASE WHEN r.co2 > 500 THEN (r.co2 - 500) / 25 ELSE 0 END) AS RoomComfortLevel
+        WITH f, avg(RoomComfortLevel) AS ComfortLevel
+        WHERE ComfortLevel < 40 OR ComfortLevel > 50
+        RETURN f.id AS FloorId, f.name AS FloorName, ComfortLevel
+        """,
+    ),
+    # The building, only while its overall comfort is outside the 40-50 band.
+    Query(
+        id=BUILDING_ALERT,
+        key="BuildingId",
+        joins=[PART_OF_FLOOR, PART_OF_BUILDING],
+        cypher="""
+        MATCH (r:Room)-[:PART_OF_FLOOR]->(f:Floor)-[:PART_OF_BUILDING]->(b:Building)
+        WITH b, f,
+            floor(50 + (r.temperature - 72) + (r.humidity - 42)
+                  + CASE WHEN r.co2 > 500 THEN (r.co2 - 500) / 25 ELSE 0 END) AS RoomComfortLevel
+        WITH b, f, avg(RoomComfortLevel) AS FloorComfortLevel
+        WITH b, avg(FloorComfortLevel) AS ComfortLevel
+        WHERE ComfortLevel < 40 OR ComfortLevel > 50
+        RETURN b.id AS BuildingId, b.name AS BuildingName, ComfortLevel
+        """,
+    ),
+]
+
+# =============================================================================
+# The engine.
+# =============================================================================
 
 # Ranges chosen to straddle the comfortable band, so simulation makes alerts
 # come and go rather than sitting at one extreme.

@@ -170,7 +170,7 @@ Flip the **Simulation mode** toggle at the top of the sidebar. Every few seconds
 
 ## How It Works {#how}
 
-The whole demo is a single Streamlit program in `tutorials/building-comfort/`. The engine, queries and reaction live in `demo/`, and `app.py` renders the reaction's state. Here's what each part does.
+The demo is two files in `tutorials/building-comfort/`: **`engine.py`** holds the source, the six queries, and the `ComfortEngine` (its Python reaction and the SQL writes); **`app.py`** renders the reaction's state and hosts the sidebar controls. The [complete `engine.py`](#all) is at the end. Here's what each part does.
 
 ### The Source
 
@@ -345,6 +345,182 @@ A Python reaction is the most direct way to turn query changes into a UI, but it
 - **Reuse a published reaction** such as the dashboard reaction plugin, exactly as the [Postgres dashboard example](../../examples/postgres-dashboard/) does — no UI code at all.
 
 Because Drasi emits only what *changed* — never the full result set — whichever you choose stays live without polling.
+
+## Putting It All Together {#all}
+
+The sections above walked through the Drasi side one piece at a time. Here it is assembled into the single `engine.py` — the source, the two synthetic joins, the six queries, and the `ComfortEngine` that runs them and writes back. `app.py` (the Streamlit UI) imports `ComfortEngine`, the query ids, and the comfort band from it:
+
+```python
+import asyncio
+import os
+import random
+import threading
+from dataclasses import dataclass, field
+
+os.environ.setdefault("RUST_LOG", "warn")  # quiet the engine's INFO logging
+
+import psycopg
+from drasi import Drasi
+
+# --- The source: the tutorial's PostgreSQL database ---
+CONNECTION = {
+    "host": os.environ.get("POSTGRES_HOST", "localhost"),
+    "port": int(os.environ.get("POSTGRES_PORT", "5732")),
+    "database": os.environ.get("POSTGRES_DATABASE", "building_comfort"),
+    "user": os.environ.get("POSTGRES_USER", "drasi_user"),
+    "password": os.environ.get("POSTGRES_PASSWORD", "drasi_password"),
+    "sslMode": "prefer",
+}
+SOURCE_CONFIG = {
+    **CONNECTION,
+    "tables": ["public.Building", "public.Floor", "public.Room"],
+    "tableKeys": [
+        {"table": "Building", "keyColumns": ["id"]},
+        {"table": "Floor", "keyColumns": ["id"]},
+        {"table": "Room", "keyColumns": ["id"]},
+    ],
+    "slotName": "drasi_building_comfort_slot",
+    "publicationName": "drasi_building_comfort_pub",
+}
+BOOTSTRAP_CONFIG = {"kind": "postgres", **CONNECTION}
+# The UI writes room updates through a psycopg connection built from CONNECTION
+# (psycopg spells the database key "dbname"), so Drasi observes them via CDC.
+
+COMFORT_DEFAULTS = {"temperature": 70, "humidity": 40, "co2": 10}
+COMFORT_MIN, COMFORT_MAX = 40, 50
+
+# --- Two synthetic joins walk Room -> Floor -> Building ---
+PART_OF_FLOOR = {
+    "id": "PART_OF_FLOOR",
+    "keys": [
+        {"label": "Room", "property": "floor_id"},
+        {"label": "Floor", "property": "id"},
+    ],
+}
+PART_OF_BUILDING = {
+    "id": "PART_OF_BUILDING",
+    "keys": [
+        {"label": "Floor", "property": "building_id"},
+        {"label": "Building", "property": "id"},
+    ],
+}
+
+
+@dataclass(frozen=True)
+class Query:
+    id: str
+    key: str  # the RETURN column that identifies each row
+    cypher: str
+    joins: list[dict] = field(default_factory=list)
+
+
+# Every query computes the same comfort level; a value in 40-50 is comfortable.
+QUERIES = [
+    # building-comfort-ui: one row per room with its comfort level. Drives the
+    # building view; walks Room -> Floor -> Building through the two joins.
+    Query(
+        id="building-comfort-ui",
+        key="RoomId",
+        joins=[PART_OF_FLOOR, PART_OF_BUILDING],
+        cypher="""
+        MATCH (r:Room)-[:PART_OF_FLOOR]->(f:Floor)-[:PART_OF_BUILDING]->(b:Building)
+        RETURN r.id AS RoomId, r.name AS RoomName, f.id AS FloorId, f.name AS FloorName,
+               b.name AS BuildingName, r.temperature AS Temperature, r.humidity AS Humidity,
+               r.co2 AS CO2,
+               floor(50 + (r.temperature - 72) + (r.humidity - 42)
+                     + CASE WHEN r.co2 > 500 THEN (r.co2 - 500) / 25 ELSE 0 END) AS ComfortLevel
+        """,
+    ),
+    # floor-comfort-level-calc: each floor's comfort, the average of its rooms.
+    Query(
+        id="floor-comfort-level-calc",
+        key="FloorId",
+        joins=[PART_OF_FLOOR],
+        cypher="""
+        MATCH (r:Room)-[:PART_OF_FLOOR]->(f:Floor)
+        WITH f, floor(50 + (r.temperature - 72) + (r.humidity - 42)
+                      + CASE WHEN r.co2 > 500 THEN (r.co2 - 500) / 25 ELSE 0 END) AS RoomComfort
+        WITH f, avg(RoomComfort) AS ComfortLevel
+        RETURN f.id AS FloorId, ComfortLevel
+        """,
+    ),
+    # room-alert: only the rooms whose comfort is outside the 40-50 band.
+    Query(
+        id="room-alert",
+        key="RoomId",
+        cypher="""
+        MATCH (r:Room)
+        WITH r.id AS RoomId, r.name AS RoomName,
+             floor(50 + (r.temperature - 72) + (r.humidity - 42)
+                   + CASE WHEN r.co2 > 500 THEN (r.co2 - 500) / 25 ELSE 0 END) AS ComfortLevel
+        WHERE ComfortLevel < 40 OR ComfortLevel > 50
+        RETURN RoomId, RoomName, ComfortLevel
+        """,
+    ),
+    # building-comfort-level-calc (average of floor averages), floor-alert, and
+    # building-alert follow the same formula with avg()/WHERE variations.
+]
+
+
+class ComfortEngine:
+    """Runs Drasi on a background loop and exposes a thread-safe snapshot."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._results = {}  # query id -> {row key -> row}
+        self._key_by_id = {q.id: q.key for q in QUERIES}
+        self._simulation = False
+        self._ready = threading.Event()
+        self._drasi = None
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def _run(self):
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(self._start())
+        self._ready.set()
+        loop.run_forever()
+
+    async def _start(self):
+        self._drasi = await Drasi.create("building-comfort")
+        for plugin in ("source/postgres", "bootstrap/postgres"):
+            await self._drasi.install_plugin(plugin)
+        await self._drasi.start()
+
+        await self._drasi.add_source("postgres", "db", SOURCE_CONFIG, bootstrap=BOOTSTRAP_CONFIG)
+        for q in QUERIES:
+            await self._drasi.add_query(q.id, q.cypher, ["db"], joins=q.joins or None)
+        for q in QUERIES:
+            await self._drasi.wait_for_query(q.id)
+            rows = await self._drasi.get_query_results(q.id)
+            self._results[q.id] = {r[q.key]: r for r in rows}
+
+        await self._drasi.add_python_reaction("ui", [q.id for q in QUERIES], self._on_results)
+
+    def _on_results(self, event):
+        key = self._key_by_id[event["query_id"]]
+        with self._lock:
+            store = self._results.setdefault(event["query_id"], {})
+            for diff in event["results"]:
+                match diff:
+                    case {"type": "DELETE", "data": dict() as row}:
+                        store.pop(row[key], None)
+                    case {"after": dict() as row} | {"data": dict() as row}:
+                        store[row[key]] = row
+
+    def snapshot(self):
+        with self._lock:
+            return {
+                "simulation": self._simulation,
+                "results": {q: list(s.values()) for q, s in self._results.items()},
+            }
+
+    # set_room(id, t, h, co2) and reset_room(id=None) write UPDATEs to Postgres;
+    # set_simulation(on) toggles a background task that assigns a random room new
+    # readings every few seconds. Drasi observes each write via CDC.
+```
+
+That's the whole Drasi side in one file: one source, two synthetic joins up the Room -> Floor -> Building hierarchy, six continuous queries (four of them aggregations), and a reaction that keeps a snapshot the UI renders and drives.
 
 ## Clean Up {#cleanup}
 

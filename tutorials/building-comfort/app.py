@@ -30,13 +30,14 @@ from collections import defaultdict
 from typing import Any
 
 import streamlit as st
-from demo.config import COMFORT_MAX, COMFORT_MIN
-from demo.engine import ComfortEngine
-from demo.queries import (
+from engine import (
     BUILDING_COMFORT_UI,
+    COMFORT_MAX,
+    COMFORT_MIN,
     FLOOR_ALERT,
     FLOOR_COMFORT_LEVEL,
     ROOM_ALERT,
+    ComfortEngine,
 )
 from streamlit_autorefresh import st_autorefresh
 
