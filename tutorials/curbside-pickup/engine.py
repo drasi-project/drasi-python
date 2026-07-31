@@ -131,16 +131,6 @@ ACTIVITY_LOG_SIZE = 20
 RETAIL_OPS = "retail-ops"  # PostgreSQL: orders
 PHYSICAL_OPS = "physical-ops"  # MySQL: vehicles
 
-# There is no foreign key between the two databases. Drasi creates the
-# relationship in the query, matching a vehicle to an order by equal plate.
-PICKUP_BY = {
-    "id": "PICKUP_BY",
-    "keys": [
-        {"label": "vehicles", "property": "plate"},
-        {"label": "orders", "property": "plate"},
-    ],
-}
-
 # Query ids -- the UI reads each query's result set from the snapshot by these.
 ORDERS_PREPARING = "orders-preparing"
 ORDERS_READY = "orders-ready"
@@ -232,14 +222,23 @@ QUERIES = [
             v.location AS location
         """,
     ),
-    # Matched orders: ready AND the driver's vehicle is at the curbside. Joins the
-    # PostgreSQL order to the MySQL vehicle by plate. drasi.listMax picks the later
-    # of the two change times (drasi.changeDateTime).
+    # Matched orders: ready AND the driver's vehicle is at the curbside. There is
+    # no foreign key between the two databases, so the query declares the
+    # relationship as a synthetic join, matching a vehicle to an order by equal
+    # plate. drasi.listMax picks the later of the two change times.
     Query(
         id=DELIVERY,
         key="id",
         sources=[RETAIL_OPS, PHYSICAL_OPS],
-        joins=[PICKUP_BY],
+        joins=[
+            {
+                "id": "PICKUP_BY",
+                "keys": [
+                    {"label": "vehicles", "property": "plate"},
+                    {"label": "orders", "property": "plate"},
+                ],
+            }
+        ],
         cypher="""
         MATCH (o:orders)-[:PICKUP_BY]->(v:vehicles)
         WHERE o.status = 'ready' AND v.location = 'Curbside'
@@ -263,7 +262,15 @@ QUERIES = [
         id=DELAY,
         key="orderId",
         sources=[RETAIL_OPS, PHYSICAL_OPS],
-        joins=[PICKUP_BY],
+        joins=[
+            {
+                "id": "PICKUP_BY",
+                "keys": [
+                    {"label": "vehicles", "property": "plate"},
+                    {"label": "orders", "property": "plate"},
+                ],
+            }
+        ],
         cypher="""
         MATCH (o:orders)-[:PICKUP_BY]->(v:vehicles)
         WHERE o.status <> 'ready'

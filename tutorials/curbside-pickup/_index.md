@@ -218,10 +218,10 @@ The MySQL container is started with ROW-based logging, full row images/metadata 
 
 ### The Synthetic Join
 
-There is no foreign key between the two databases — they're completely separate systems. Drasi creates the relationship in the query with a **synthetic join**, matching a vehicle to an order whenever their `plate` values are equal:
+There is no foreign key between the two databases — they're completely separate systems. Drasi creates the relationship in the query with a **synthetic join**, matching a vehicle to an order whenever their `plate` values are equal. The `delivery` and `delay` queries read from **both** sources and declare this join dict in their `joins` list:
 
 ```python
-PICKUP_BY = {
+{
     "id": "PICKUP_BY",
     "keys": [
         {"label": "vehicles", "property": "plate"},
@@ -230,7 +230,7 @@ PICKUP_BY = {
 }
 ```
 
-The `delivery` and `delay` queries read from **both** sources and pass `joins=[PICKUP_BY]` to `add_query`, then walk `(o:orders)-[:PICKUP_BY]->(v:vehicles)` as if it were a real graph edge — across two different databases.
+With that declared, the query walks `(o:orders)-[:PICKUP_BY]->(v:vehicles)` as if it were a real graph edge — across two different databases.
 
 ### The Six Continuous Queries
 
@@ -346,15 +346,6 @@ MYSQL_SOURCE_CONFIG = {
 
 RETAIL_OPS, PHYSICAL_OPS = "retail-ops", "physical-ops"
 
-# The synthetic join: match a vehicle to an order by equal plate, across databases.
-PICKUP_BY = {
-    "id": "PICKUP_BY",
-    "keys": [
-        {"label": "vehicles", "property": "plate"},
-        {"label": "orders", "property": "plate"},
-    ],
-}
-
 
 @dataclass(frozen=True)
 class Query:
@@ -376,12 +367,21 @@ QUERIES = [
         cypher="MATCH (o:orders) WHERE o.status <> 'ready' "
         "RETURN o.id AS id, o.customer_name AS customerName, o.plate AS plate",
     ),
-    # delivery: an order is ready AND its driver's vehicle is at the curbside.
+    # delivery: an order is ready AND its driver's vehicle is at the curbside. The
+    # synthetic join matches a vehicle to an order by equal plate, across databases.
     Query(
         id="delivery",
         key="id",
         sources=[RETAIL_OPS, PHYSICAL_OPS],
-        joins=[PICKUP_BY],
+        joins=[
+            {
+                "id": "PICKUP_BY",
+                "keys": [
+                    {"label": "vehicles", "property": "plate"},
+                    {"label": "orders", "property": "plate"},
+                ],
+            }
+        ],
         cypher="""
         MATCH (o:orders)-[:PICKUP_BY]->(v:vehicles)
         WHERE o.status = 'ready' AND v.location = 'Curbside'
@@ -393,7 +393,15 @@ QUERIES = [
         id="delay",
         key="orderId",
         sources=[RETAIL_OPS, PHYSICAL_OPS],
-        joins=[PICKUP_BY],
+        joins=[
+            {
+                "id": "PICKUP_BY",
+                "keys": [
+                    {"label": "vehicles", "property": "plate"},
+                    {"label": "orders", "property": "plate"},
+                ],
+            }
+        ],
         cypher="""
         MATCH (o:orders)-[:PICKUP_BY]->(v:vehicles)
         WHERE o.status <> 'ready'
