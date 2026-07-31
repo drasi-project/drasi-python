@@ -7,6 +7,7 @@ self-contained project you can clone and run.
 | Tutorial | What you learn | How to run it |
 | --- | --- | --- |
 | [building-comfort](building-comfort) | Smart-building comfort monitoring — PostgreSQL CDC, six continuous queries with synthetic joins and aggregation, and a **Python reaction that drives a Streamlit UI** (with simulation, reset and per-room controls) | Open the **Building Comfort Tutorial (Python)** dev container (or a Codespace) and follow [tutorials/building-comfort](building-comfort) |
+| [curbside-pickup](curbside-pickup) | Cross-database joins — a PostgreSQL `orders` store and a MySQL `vehicles` store joined by license plate, six continuous queries (incl. a temporal `drasi.trueFor` delay), rendered and driven from **one integrated Streamlit UI** powered by a Python reaction | Open the **Curbside Pickup Tutorial (Python)** dev container (or a Codespace) and follow [tutorials/curbside-pickup](curbside-pickup) |
 
 ## How these tutorials are authored
 

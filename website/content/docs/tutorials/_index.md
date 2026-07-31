@@ -24,4 +24,13 @@ clone it and run it locally.
       </div>
     </div>
   </a>
+  <a href="curbside-pickup/">
+    <div class="unified-card unified-card--tutorials">
+      <div class="unified-card-icon"><i class="fas fa-car"></i></div>
+      <div class="unified-card-content">
+        <h3 class="unified-card-title">Curbside Pickup</h3>
+        <p class="unified-card-summary">Join a PostgreSQL orders store and a MySQL vehicles store by license plate — including a temporal delay query — in one integrated Streamlit UI driven by a Python reaction.</p>
+      </div>
+    </div>
+  </a>
 </div>

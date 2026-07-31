@@ -72,6 +72,11 @@ defaultContentLanguageInSubdir = false
     # Only the write-up and its images are docs; the app code is not.
     includeFiles = ["/_index.md", "/images/**"]
 
+  [[module.mounts]]
+    source = "../tutorials/curbside-pickup"
+    target = "content/docs/tutorials/curbside-pickup"
+    includeFiles = ["/_index.md", "/images/**"]
+
 # UI customization
 [params]
   # Built-in (offline) lunr.js search — no external service required.
