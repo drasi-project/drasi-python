@@ -17,7 +17,7 @@
 -- A single `message` table -- imagine a simple live message feed. The table and
 -- columns are lower-case and unquoted so the node label and property names Drasi
 -- sees match the Cypher continuous queries, which use (m:message) and m.message,
--- m.from, m.messageid without any change.
+-- m.sender, m.messageid without any change.
 
 -- Suppress noisy output during setup.
 \set QUIET on
@@ -42,7 +42,7 @@ DROP TABLE IF EXISTS message CASCADE;
 -- message table: one row per message in the feed.
 CREATE TABLE message (
     messageid  SERIAL PRIMARY KEY,
-    "from"     VARCHAR(50)  NOT NULL,
+    sender     VARCHAR(50)  NOT NULL,
     message    VARCHAR(200) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -73,12 +73,12 @@ $$;
 
 -- Seed a few messages. One of them is exactly 'Hello World', which the
 -- hello-world-from query matches.
-INSERT INTO message ("from", message)
+INSERT INTO message (sender, message)
 SELECT * FROM (VALUES
     ('Buzz Lightyear',  'To infinity and beyond!'),
     ('Brian Kernighan', 'Hello World'),
     ('Ada Lovelace',    'The Analytical Engine weaves algebraic patterns.')
-) AS d("from", message)
+) AS d(sender, message)
 WHERE NOT EXISTS (SELECT 1 FROM message);
 
 -- Summary.

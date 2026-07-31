@@ -60,7 +60,7 @@ try {
 
     Write-Host ""
     Write-Host "Seeded messages:"
-    'SELECT messageid, "from", message FROM message ORDER BY messageid;' | `
+    'SELECT messageid, sender, message FROM message ORDER BY messageid;' | `
         docker exec -i getting-started-postgres psql -U drasi_user -d getting_started
 
     Write-Host ""

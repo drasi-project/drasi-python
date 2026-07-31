@@ -15,7 +15,7 @@
 # Start Demo Script (Windows)
 # Starts (and seeds) the database, then runs the console app in the foreground.
 # Leave it running in this terminal; use a second terminal to add and delete
-# messages with scripts/add-message.ps1 and scripts/delete-message.ps1. Press
+# messages with SQL (docker exec ... psql), as shown in the tutorial. Press
 # Ctrl+C to stop, then run scripts/cleanup.ps1.
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path

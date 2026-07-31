@@ -20,7 +20,7 @@ This is the getting-started tutorial for **`drasi-lib`**, the Python binding tha
 
 > **Before you begin**
 >
-> - **Two terminals:** **Terminal 1** runs the console app (it stays in the foreground and prints changes). Use **Terminal 2** for the helper scripts that add and delete messages.
+> - **Two terminals:** **Terminal 1** runs the console app (it stays in the foreground and prints changes). Use **Terminal 2** to change messages with SQL.
 > - **Working directory:** run every command from the tutorial directory (`tutorials/getting-started/`). The dev container opens there automatically; if you're running locally, `cd tutorials/getting-started` first.
 > - **Command tabs:** commands are shown in tabs (*bash / zsh* and *PowerShell*). Use the one for your shell.
 > - **Ports:** PostgreSQL is published on `5752`. There is no web UI.
@@ -109,26 +109,19 @@ Once it's ready, the app prints each query's initial results and then waits for 
 ```
 
 ## Step 4 of 4: Drive Change
-With Terminal 1 running the app, use **Terminal 2** to change the data and watch it react.
+With Terminal 1 running the app, use **Terminal 2** to change the data and watch it react. The commands below use `docker exec` to run SQL inside the database container, and are identical in bash and PowerShell.
 
-> **No middle tier — the scripts just write to the database**
+> **No middle tier — just SQL**
 >
-> The helper scripts run a plain SQL `INSERT` or `DELETE` against PostgreSQL — exactly what an existing app would already do. There's no API to call and no event to publish. Drasi observes the row change through logical replication (CDC), re-evaluates the affected queries, and calls the Python reaction, which prints the change. The **PowerShell** tabs make this obvious — they're the raw SQL statements.
+> Each command runs a plain SQL `INSERT` or `DELETE` against PostgreSQL — exactly what an existing app would already do. There's no API to call and no event to publish. Drasi observes the row change through logical replication (CDC), re-evaluates the affected queries, and calls the Python reaction, which prints the change.
 
 ### Add a message
 
 Send a new `Hello World`, from someone new:
 
-**bash / zsh**
-
 ```bash
-bash scripts/add-message.sh "Grace Hopper" "Hello World"
-```
-
-**PowerShell**
-
-```powershell
-docker exec getting-started-postgres psql -U drasi_user -d getting_started -c "INSERT INTO message (""from"", message) VALUES ('Grace Hopper', 'Hello World');"
+docker exec getting-started-postgres psql -U drasi_user -d getting_started \
+  -c "INSERT INTO message (sender, message) VALUES ('Grace Hopper', 'Hello World') RETURNING messageid;"
 ```
 
 Terminal 1 reacts immediately — the filter picks up the new sender and the aggregate ticks up:
@@ -138,22 +131,20 @@ Terminal 1 reacts immediately — the filter picks up the new sender and the agg
 [13:06:26] [message-count] ~ Frequency=1  Message='Hello World' -> Frequency=2  Message='Hello World'
 ```
 
-Try a message that *isn't* `Hello World` (say `bash scripts/add-message.sh "Bob" "Goodbye World"`) and only `message-count` changes — the filter query ignores it.
+Try a message that *isn't* `Hello World` and only `message-count` changes — the filter query ignores it:
+
+```bash
+docker exec getting-started-postgres psql -U drasi_user -d getting_started \
+  -c "INSERT INTO message (sender, message) VALUES ('Bob', 'Goodbye World');"
+```
 
 ### Delete a message
 
-Remove a message by its id (the add script prints the `messageid`; message `2` is the seeded `Hello World`):
-
-**bash / zsh**
+Remove a message by its id (the `INSERT` above prints the new id via `RETURNING`; message `2` is the seeded `Hello World`):
 
 ```bash
-bash scripts/delete-message.sh 2
-```
-
-**PowerShell**
-
-```powershell
-docker exec getting-started-postgres psql -U drasi_user -d getting_started -c "DELETE FROM message WHERE messageid=2;"
+docker exec getting-started-postgres psql -U drasi_user -d getting_started \
+  -c "DELETE FROM message WHERE messageid=2;"
 ```
 
 `hello-world-from` drops that row and `message-count` decrements — a row leaving a result set is a change Drasi reports too.
@@ -196,7 +187,7 @@ They build up in complexity.
 ```cypher
 MATCH (m:message)
 WHERE m.message = 'Hello World'
-RETURN m.messageid AS MessageId, m.from AS MessageFrom
+RETURN m.messageid AS MessageId, m.sender AS MessageFrom
 ```
 
 **Aggregation** — `message-count` groups by message text and counts. Like SQL's `GROUP BY`, the non-aggregated `Message` travels alongside `count(m)`, and Drasi maintains the counts **incrementally** — one insert bumps exactly one row:
@@ -210,7 +201,7 @@ RETURN m.message AS Message, count(m) AS Frequency
 
 ```cypher
 MATCH (m:message)
-WITH m.from AS MessageFrom, max(drasi.changeDateTime(m)) AS LastMessageTimestamp
+WITH m.sender AS MessageFrom, max(drasi.changeDateTime(m)) AS LastMessageTimestamp
 WHERE LastMessageTimestamp <= datetime.realtime() - duration({ seconds: 20 })
    OR drasi.trueLater(
         LastMessageTimestamp <= datetime.realtime() - duration({ seconds: 20 }),

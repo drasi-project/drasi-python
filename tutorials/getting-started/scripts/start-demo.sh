@@ -17,7 +17,7 @@
 # Starts (and seeds) the database, then runs the console app in the foreground.
 # The app embeds the Drasi engine and prints query changes. Leave it running in
 # this terminal (Terminal 1); use a second terminal to add and delete messages
-# with scripts/add-message.sh and scripts/delete-message.sh. Press Ctrl+C to
+# with SQL (docker exec ... psql), as shown in the tutorial. Press Ctrl+C to
 # stop, then run ./scripts/cleanup.sh.
 
 set -e

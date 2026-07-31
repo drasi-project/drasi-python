@@ -75,7 +75,7 @@ docker exec -i getting-started-postgres \
 echo
 echo "Seeded messages:"
 docker exec getting-started-postgres psql -U drasi_user -d getting_started -c \
-    "SELECT messageid, \"from\", message FROM message ORDER BY messageid;"
+    "SELECT messageid, sender, message FROM message ORDER BY messageid;"
 
 echo
 echo "=== Database setup complete! ==="

@@ -22,7 +22,7 @@ It connects Drasi's PostgreSQL source to the tutorial's `message` table, starts
 three continuous queries, and registers a single **Python reaction** that prints
 each result-set change to the console. Then it stays running and watches. There
 is no UI and no prompt: you drive changes by running SQL directly against the
-database (see scripts/add-message.sh and scripts/delete-message.sh) and watch the
+database (with `docker exec ... psql`, shown in the tutorial) and watch the
 queries react here in real time. Press Ctrl+C to stop.
 """
 
@@ -104,8 +104,8 @@ async def main() -> None:
 
         print(
             f"\n=== Watching for changes (Ctrl+C to stop) ===\n"
-            f"Add or delete messages with SQL (scripts/add-message.sh, "
-            f"scripts/delete-message.sh) and watch the queries react. A sender "
+            f"Add or delete messages by running SQL against the database "
+            f"(docker exec ... psql) and watch the queries react. A sender "
             f"appears in inactive-people once they have been quiet for "
             f"{INACTIVITY_SECONDS}s.\n"
         )

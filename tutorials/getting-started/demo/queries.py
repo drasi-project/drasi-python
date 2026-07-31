@@ -45,7 +45,7 @@ HELLO_WORLD_FROM_QUERY = Query(
     cypher="""
     MATCH (m:message)
     WHERE m.message = 'Hello World'
-    RETURN m.messageid AS MessageId, m.from AS MessageFrom
+    RETURN m.messageid AS MessageId, m.sender AS MessageFrom
     """,
 )
 
@@ -67,7 +67,7 @@ INACTIVE_PEOPLE_QUERY = Query(
     key="MessageFrom",
     cypher="""
     MATCH (m:message)
-    WITH m.from AS MessageFrom, max(drasi.changeDateTime(m)) AS LastMessageTimestamp
+    WITH m.sender AS MessageFrom, max(drasi.changeDateTime(m)) AS LastMessageTimestamp
     WHERE LastMessageTimestamp <= datetime.realtime() - duration({ seconds: 20 })
        OR drasi.trueLater(
             LastMessageTimestamp <= datetime.realtime() - duration({ seconds: 20 }),
