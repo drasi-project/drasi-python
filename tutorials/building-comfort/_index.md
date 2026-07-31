@@ -201,7 +201,7 @@ await drasi.add_source(
 )
 ```
 
-The source uses **logical replication (CDC)** to stream changes from the `Building`, `Floor`, and `Room` tables. `tableKeys` tells Drasi the primary key of each table so it can track row identity across changes. The `bootstrap` provider loads the rows that already exist when the query starts; after that, every `UPDATE` the UI makes flows to Drasi as a change. The table names are PascalCase so the node labels Drasi sees match the queries exactly: `(r:Room)`, `(f:Floor)`, `(b:Building)`. For every option the source accepts, see [Configure the PostgreSQL Source](https://drasi.io/reference/sources/postgresql/).
+The source uses **logical replication (CDC)** to stream changes from the `Building`, `Floor`, and `Room` tables. `tableKeys` tells Drasi the primary key of each table so it can track row identity across changes. The `bootstrap` provider loads the rows that already exist when the query starts; after that, every `UPDATE` the UI makes flows to Drasi as a change. The table names are PascalCase so the node labels Drasi sees match the queries exactly: `(r:Room)`, `(f:Floor)`, `(b:Building)`. For every option the source accepts, see [Configure the PostgreSQL Source](https://drasi.io/drasi-server/how-to-guides/configuration/configure-sources/configure-postgresql-source/).
 
 ### The Continuous Queries
 
