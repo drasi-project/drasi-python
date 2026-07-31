@@ -71,6 +71,9 @@ jobs:
       - name: Python formatting
         run: .venv/bin/ruff format --check .
 
+      - name: Tutorial READMEs are current
+        run: python3 scripts/render-tutorials.py --check
+
       # This went unrun for long enough to accumulate 1653 errors from a single
       # misconfiguration, which is exactly the kind of rot a gate is meant to
       # prevent. pyright resolves `drasi` from the source tree, so the

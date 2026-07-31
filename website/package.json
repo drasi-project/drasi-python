@@ -12,7 +12,7 @@
   "scripts": {
     "get:theme": "cd themes/docsy && npm install",
     "build": "hugo --gc --minify",
-    "serve": "hugo server"
+    "serve": "hugo server --baseURL http://localhost:1313/ --appendPort=false"
   },
   "devDependencies": {
     "autoprefixer": "^10.4.22",

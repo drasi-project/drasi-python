@@ -1,0 +1,8 @@
+# Streamlit settings for the tutorial. `headless = true` skips the interactive
+# first-run email prompt (which would otherwise block startup and leave the port
+# unbound), and `address = 0.0.0.0` makes the app reachable through a dev
+# container's / Codespaces' forwarded port.
+[server]
+headless = true
+address = "0.0.0.0"
+port = 8501

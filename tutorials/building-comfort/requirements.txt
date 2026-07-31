@@ -1,0 +1,11 @@
+# Building Comfort tutorial dependencies.
+#
+#   pip install -r requirements.txt
+#
+# drasi-lib is the Python binding for Drasi's embeddable engine. It downloads the
+# Postgres source/bootstrap plugins from ghcr.io at runtime, so the first run
+# needs network access.
+drasi-lib>=0.2,<1
+streamlit>=1.32
+streamlit-autorefresh>=1.0
+psycopg[binary]>=3.1

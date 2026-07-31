@@ -193,6 +193,14 @@ make venv && make develop
 .venv/bin/python examples/python_source.py
 ```
 
+## Tutorials
+
+Longer, hands-on walkthroughs live in [`tutorials/`](https://github.com/drasi-project/drasi-python/tree/main/tutorials).
+The [Building Comfort](https://github.com/drasi-project/drasi-python/tree/main/tutorials/building-comfort)
+tutorial builds a smart-building monitor from PostgreSQL CDC, six continuous
+queries with synthetic joins, and a Python reaction that drives a live Streamlit
+UI. The tutorials also render on the [documentation site](https://drasi-project.github.io/drasi-python/docs/tutorials/).
+
 ## Development
 
 ```bash

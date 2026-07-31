@@ -1,0 +1,30 @@
+{{- /*
+  Code-block render hook for Cypher.
+
+  Chroma (the highlighter Hugo bundles) has no Cypher lexer, so ```cypher blocks
+  would otherwise render unhighlighted on the doc site. This hook applies a
+  lightweight, Cypher-aware highlight using the same Chroma CSS classes
+  (k, nf, nl, m, c1) the rest of the site already styles. The GitHub READMEs are
+  generated separately and keep their ```cypher fences, where GitHub's own
+  Linguist grammar highlights them.
+*/ -}}
+{{- $h := trim .Inner "\n" | htmlEscape -}}
+{{- /* htmlEscape turns ' into the entity &#39;; its digits would otherwise be
+      caught by the number rule below (producing &#<span...>39</span>; which
+      browsers can't decode, showing a literal &#39;). Park it on a placeholder
+      and restore it after all the highlighting regexes have run. */ -}}
+{{- $sq := "\ue000" -}}
+{{- $h = replace $h "&#39;" $sq -}}
+{{- /* line comments */ -}}
+{{- $h = $h | replaceRE `(//[^\n]*)` `<span class="c1">$1</span>` -}}
+{{- /* keywords */ -}}
+{{- $h = $h | replaceRE `(?i)\b(MATCH|OPTIONAL|WITH|WHERE|RETURN|MERGE|CREATE|DELETE|SET|REMOVE|UNWIND|ORDER|BY|SKIP|LIMIT|AS|CASE|WHEN|THEN|ELSE|END|AND|OR|XOR|NOT|IN|STARTS|ENDS|CONTAINS|IS|NULL|TRUE|FALSE|DISTINCT)\b` `<span class="k">$1</span>` -}}
+{{- /* functions called as name( — includes Drasi's Cypher extension functions */ -}}
+{{- $h = $h | replaceRE `\b(avg|count|sum|min|max|collect|floor|ceil|round|abs|coalesce|toInteger|toFloat|size|length|duration|trueFor|trueLater|changeDateTime|getVersionByTimestamp|realtime|listMax|listMin)(\s*\()` `<span class="nf">$1</span>$2` -}}
+{{- /* node / relationship labels after a colon */ -}}
+{{- $h = $h | replaceRE `:([A-Za-z_][A-Za-z0-9_]*)` `:<span class="nl">$1</span>` -}}
+{{- /* numbers */ -}}
+{{- $h = $h | replaceRE `\b(\d+(?:\.\d+)?)\b` `<span class="m">$1</span>` -}}
+{{- /* restore the single-quote entity */ -}}
+{{- $h = replace $h $sq "&#39;" -}}
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-cypher" data-lang="cypher">{{ $h | safeHTML }}</code></pre></div>

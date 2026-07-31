@@ -57,6 +57,31 @@ defaultContentLanguageInSubdir = false
     extended = true
     min = "0.110.0"
 
+  # Tutorials are authored once under ../tutorials/<name>/_index.md (co-located
+  # with their runnable code) and mounted into the docs content tree, so the doc
+  # site and the generated GitHub READMEs stay in sync. Adding a content mount
+  # disables Hugo's implicit "content -> content" default, so it is re-declared
+  # here; the assets/ and layouts/ defaults are untouched.
+  [[module.mounts]]
+    source = "content"
+    target = "content"
+
+  [[module.mounts]]
+    source = "../tutorials/getting-started"
+    target = "content/docs/tutorials/getting-started"
+    includeFiles = ["/_index.md", "/images/**"]
+
+  [[module.mounts]]
+    source = "../tutorials/building-comfort"
+    target = "content/docs/tutorials/building-comfort"
+    # Only the write-up and its images are docs; the app code is not.
+    includeFiles = ["/_index.md", "/images/**"]
+
+  [[module.mounts]]
+    source = "../tutorials/curbside-pickup"
+    target = "content/docs/tutorials/curbside-pickup"
+    includeFiles = ["/_index.md", "/images/**"]
+
 # UI customization
 [params]
   # Built-in (offline) lunr.js search — no external service required.
