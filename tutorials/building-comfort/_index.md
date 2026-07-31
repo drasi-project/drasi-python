@@ -289,22 +289,21 @@ This is where the Python demo differs from a built-in dashboard. Instead of conf
 
 ```python
 def on_results(event):
-    query_id = event["query_id"]
-    key = KEY_FIELDS[query_id]  # "RoomId", "FloorId" or "BuildingId"
+    query = QUERIES_BY_ID[event["query_id"]]
     with lock:
-        store = results[query_id]  # the UI reads this snapshot
+        store = snapshot[query.id]  # this query's rows, keyed by id; the UI reads it
         for diff in event["results"]:
             row = diff.get("data") or diff.get("after")
             if diff["type"] == "DELETE":
-                store.pop(row[key], None)
+                store.pop(row[query.key], None)
             else:  # ADD or UPDATE: upsert by row identity
-                store[row[key]] = row
+                store[row[query.key]] = row
 
 
-await drasi.add_python_reaction("ui", ALL_QUERY_IDS, on_results)
+await drasi.add_python_reaction("ui", [q.id for q in QUERIES], on_results)
 ```
 
-Every diff carries the affected row in `data` (for an `UPDATE` it equals `after`), so the snapshot is kept by row identity — upsert on `ADD`/`UPDATE`, drop on `DELETE`. The `type` is one of `ADD`, `UPDATE`, or `DELETE`. This works the same for the per-room queries and the aggregate floor/building queries, which emit an `UPDATE` as their average changes. See [Python reactions](../../guides/python-reactions/) for the full callback contract.
+Each query knows the RETURN column that identifies its rows (`query.key` — `RoomId`, `FloorId` or `BuildingId`). Every diff carries the affected row in `data` (for an `UPDATE` it equals `after`), so the snapshot is kept by row identity — upsert on `ADD`/`UPDATE`, drop on `DELETE`. The `type` is one of `ADD`, `UPDATE`, or `DELETE`. This works the same for the per-room queries and the aggregate floor/building queries, which emit an `UPDATE` as their average changes. See [Python reactions](../../guides/python-reactions/) for the full callback contract.
 
 ### Embedding the engine in Streamlit
 

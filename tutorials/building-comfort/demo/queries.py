@@ -12,37 +12,39 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""The six continuous queries, ported from the Drasi Server tutorial.
+"""The six continuous queries that power the demo.
 
-Each query computes a comfort level with the same formula. A value between 40
-and 50 is comfortable; the seed values (70F, 40%, 10 ppm) give
-``floor(50 + (70-72) + (40-42) + 0) = 46``.
+Each query is written out in full below so you can read (or copy) exactly what
+Drasi runs. They all compute the same comfort level:
+
+    floor(50 + (temperature - 72) + (humidity - 42)
+          + CASE WHEN co2 > 500 THEN (co2 - 500) / 25 ELSE 0 END)
+
+A value between 40 and 50 is comfortable; the seed values (70F, 40%, 10 ppm)
+give floor(50 + (70-72) + (40-42) + 0) = 46.
 
 The Room -> Floor -> Building hierarchy is walked through two *synthetic joins*.
 Drasi does not read Postgres foreign keys, so each query declares the
-relationships it needs. In ``drasi-lib`` a join is a ``Join`` mapping, passed to
-``add_query(..., joins=[...])`` -- the same shape the Drasi Server YAML uses.
+relationships it needs. A join is a plain mapping passed to ``add_query``.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Any
 
-# The comfort formula, shared by every query. ``r`` is the Room node.
-_COMFORT = (
-    "floor( 50 + (r.temperature - 72) + (r.humidity - 42)"
-    " + CASE WHEN r.co2 > 500 THEN (r.co2 - 500) / 25 ELSE 0 END )"
-)
+# --- Synthetic joins ---------------------------------------------------------
+# Room.floor_id -> Floor.id, and Floor.building_id -> Building.id.
 
-# Synthetic joins: Room.floor_id -> Floor.id, Floor.building_id -> Building.id.
-PART_OF_FLOOR: dict[str, Any] = {
+PART_OF_FLOOR = {
     "id": "PART_OF_FLOOR",
     "keys": [
         {"label": "Room", "property": "floor_id"},
         {"label": "Floor", "property": "id"},
     ],
 }
-PART_OF_BUILDING: dict[str, Any] = {
+
+PART_OF_BUILDING = {
     "id": "PART_OF_BUILDING",
     "keys": [
         {"label": "Floor", "property": "building_id"},
@@ -50,7 +52,9 @@ PART_OF_BUILDING: dict[str, Any] = {
     ],
 }
 
-# Query ids, used both to register the queries and to index the reaction's state.
+# --- Query ids ---------------------------------------------------------------
+# The UI reads each query's result set from the snapshot by these ids.
+
 BUILDING_COMFORT_UI = "building-comfort-ui"
 BUILDING_COMFORT_LEVEL = "building-comfort-level-calc"
 FLOOR_COMFORT_LEVEL = "floor-comfort-level-calc"
@@ -59,145 +63,122 @@ FLOOR_ALERT = "floor-alert"
 BUILDING_ALERT = "building-alert"
 
 
-# Each entry: (id, cypher, joins). ``joins`` is empty for queries that match a
-# single label. The engine registers them in order.
-QUERIES: list[tuple[str, str, list[dict[str, Any]]]] = [
-    # Query 1: per-room comfort level (drives the building view).
-    (
-        BUILDING_COMFORT_UI,
-        f"""
-        MATCH
-          (r:Room)-[:PART_OF_FLOOR]->(f:Floor)-[:PART_OF_BUILDING]->(b:Building)
-        WITH
-          r, f, b,
-          {_COMFORT} AS ComfortLevel
-        RETURN
-          r.id AS RoomId,
-          r.name AS RoomName,
-          f.id AS FloorId,
-          f.name AS FloorName,
-          b.id AS BuildingId,
-          b.name AS BuildingName,
-          r.temperature AS Temperature,
-          r.humidity AS Humidity,
-          r.co2 AS CO2,
-          ComfortLevel
-        """,
-        [PART_OF_FLOOR, PART_OF_BUILDING],
-    ),
-    # Query 2: overall building comfort (avg of floor averages).
-    (
-        BUILDING_COMFORT_LEVEL,
-        f"""
-        MATCH
-          (r:Room)-[:PART_OF_FLOOR]->(f:Floor)-[:PART_OF_BUILDING]->(b:Building)
-        WITH
-          b,
-          {_COMFORT} AS RoomComfortLevel
-        WITH
-          b,
-          avg(RoomComfortLevel) AS FloorComfortLevel
-        WITH
-          b,
-          avg(FloorComfortLevel) AS ComfortLevel
-        RETURN
-          b.id AS BuildingId,
-          ComfortLevel
-        """,
-        [PART_OF_FLOOR, PART_OF_BUILDING],
-    ),
-    # Query 3: per-floor comfort (avg of the floor's rooms).
-    (
-        FLOOR_COMFORT_LEVEL,
-        f"""
-        MATCH
-          (r:Room)-[:PART_OF_FLOOR]->(f:Floor)
-        WITH
-          f,
-          {_COMFORT} AS RoomComfortLevel
-        WITH
-          f,
-          avg(RoomComfortLevel) AS ComfortLevel
-        RETURN
-          f.id AS FloorId,
-          ComfortLevel
-        """,
-        [PART_OF_FLOOR],
-    ),
-    # Query 4: rooms outside the comfortable band (40-50).
-    (
-        ROOM_ALERT,
-        f"""
-        MATCH
-          (r:Room)
-        WITH
-          r.id AS RoomId,
-          r.name AS RoomName,
-          {_COMFORT} AS ComfortLevel
-        WHERE ComfortLevel < 40 OR ComfortLevel > 50
-        RETURN
-          RoomId, RoomName, ComfortLevel
-        """,
-        [],
-    ),
-    # Query 5: floors whose average comfort is outside 40-50.
-    (
-        FLOOR_ALERT,
-        f"""
-        MATCH
-          (r:Room)-[:PART_OF_FLOOR]->(f:Floor)
-        WITH
-          f,
-          {_COMFORT} AS RoomComfortLevel
-        WITH
-          f,
-          avg(RoomComfortLevel) AS ComfortLevel
-        WHERE
-          ComfortLevel < 40 OR ComfortLevel > 50
-        RETURN
-          f.id AS FloorId,
-          f.name AS FloorName,
-          ComfortLevel
-        """,
-        [PART_OF_FLOOR],
-    ),
-    # Query 6: the building when its overall comfort is outside 40-50.
-    (
-        BUILDING_ALERT,
-        f"""
-        MATCH
-          (r:Room)-[:PART_OF_FLOOR]->(f:Floor)-[:PART_OF_BUILDING]->(b:Building)
-        WITH
-          f, b,
-          {_COMFORT} AS RoomComfortLevel
-        WITH
-          f, b,
-          avg(RoomComfortLevel) AS FloorComfortLevel
-        WITH
-          b,
-          avg(FloorComfortLevel) AS ComfortLevel
-        WHERE
-          ComfortLevel < 40 OR ComfortLevel > 50
-        RETURN
-          b.id AS BuildingId,
-          b.name AS BuildingName,
-          ComfortLevel
-        """,
-        [PART_OF_FLOOR, PART_OF_BUILDING],
-    ),
+@dataclass(frozen=True)
+class Query:
+    """One continuous query: how to register it and how to index its rows."""
+
+    id: str
+    key: str  # the RETURN column that identifies each row (its primary key)
+    cypher: str
+    joins: list[dict[str, Any]] = field(default_factory=list)
+
+
+# One row per room, with its comfort level. Drives the building view.
+BUILDING_COMFORT_UI_QUERY = Query(
+    id=BUILDING_COMFORT_UI,
+    key="RoomId",
+    joins=[PART_OF_FLOOR, PART_OF_BUILDING],
+    cypher="""
+    MATCH (r:Room)-[:PART_OF_FLOOR]->(f:Floor)-[:PART_OF_BUILDING]->(b:Building)
+    RETURN
+        r.id AS RoomId,
+        r.name AS RoomName,
+        f.id AS FloorId,
+        f.name AS FloorName,
+        b.id AS BuildingId,
+        b.name AS BuildingName,
+        r.temperature AS Temperature,
+        r.humidity AS Humidity,
+        r.co2 AS CO2,
+        floor(50 + (r.temperature - 72) + (r.humidity - 42)
+              + CASE WHEN r.co2 > 500 THEN (r.co2 - 500) / 25 ELSE 0 END) AS ComfortLevel
+    """,
+)
+
+# The building's overall comfort: the average of each floor's average.
+BUILDING_COMFORT_LEVEL_QUERY = Query(
+    id=BUILDING_COMFORT_LEVEL,
+    key="BuildingId",
+    joins=[PART_OF_FLOOR, PART_OF_BUILDING],
+    cypher="""
+    MATCH (r:Room)-[:PART_OF_FLOOR]->(f:Floor)-[:PART_OF_BUILDING]->(b:Building)
+    WITH b, f,
+        floor(50 + (r.temperature - 72) + (r.humidity - 42)
+              + CASE WHEN r.co2 > 500 THEN (r.co2 - 500) / 25 ELSE 0 END) AS RoomComfortLevel
+    WITH b, avg(RoomComfortLevel) AS FloorComfortLevel
+    WITH b, avg(FloorComfortLevel) AS ComfortLevel
+    RETURN b.id AS BuildingId, ComfortLevel
+    """,
+)
+
+# Each floor's comfort: the average of the rooms on it.
+FLOOR_COMFORT_LEVEL_QUERY = Query(
+    id=FLOOR_COMFORT_LEVEL,
+    key="FloorId",
+    joins=[PART_OF_FLOOR],
+    cypher="""
+    MATCH (r:Room)-[:PART_OF_FLOOR]->(f:Floor)
+    WITH f,
+        floor(50 + (r.temperature - 72) + (r.humidity - 42)
+              + CASE WHEN r.co2 > 500 THEN (r.co2 - 500) / 25 ELSE 0 END) AS RoomComfortLevel
+    WITH f, avg(RoomComfortLevel) AS ComfortLevel
+    RETURN f.id AS FloorId, ComfortLevel
+    """,
+)
+
+# Only the rooms whose comfort is outside the 40-50 band.
+ROOM_ALERT_QUERY = Query(
+    id=ROOM_ALERT,
+    key="RoomId",
+    cypher="""
+    MATCH (r:Room)
+    WITH r.id AS RoomId, r.name AS RoomName,
+        floor(50 + (r.temperature - 72) + (r.humidity - 42)
+              + CASE WHEN r.co2 > 500 THEN (r.co2 - 500) / 25 ELSE 0 END) AS ComfortLevel
+    WHERE ComfortLevel < 40 OR ComfortLevel > 50
+    RETURN RoomId, RoomName, ComfortLevel
+    """,
+)
+
+# Only the floors whose average comfort is outside the 40-50 band.
+FLOOR_ALERT_QUERY = Query(
+    id=FLOOR_ALERT,
+    key="FloorId",
+    joins=[PART_OF_FLOOR],
+    cypher="""
+    MATCH (r:Room)-[:PART_OF_FLOOR]->(f:Floor)
+    WITH f,
+        floor(50 + (r.temperature - 72) + (r.humidity - 42)
+              + CASE WHEN r.co2 > 500 THEN (r.co2 - 500) / 25 ELSE 0 END) AS RoomComfortLevel
+    WITH f, avg(RoomComfortLevel) AS ComfortLevel
+    WHERE ComfortLevel < 40 OR ComfortLevel > 50
+    RETURN f.id AS FloorId, f.name AS FloorName, ComfortLevel
+    """,
+)
+
+# The building, only while its overall comfort is outside the 40-50 band.
+BUILDING_ALERT_QUERY = Query(
+    id=BUILDING_ALERT,
+    key="BuildingId",
+    joins=[PART_OF_FLOOR, PART_OF_BUILDING],
+    cypher="""
+    MATCH (r:Room)-[:PART_OF_FLOOR]->(f:Floor)-[:PART_OF_BUILDING]->(b:Building)
+    WITH b, f,
+        floor(50 + (r.temperature - 72) + (r.humidity - 42)
+              + CASE WHEN r.co2 > 500 THEN (r.co2 - 500) / 25 ELSE 0 END) AS RoomComfortLevel
+    WITH b, f, avg(RoomComfortLevel) AS FloorComfortLevel
+    WITH b, avg(FloorComfortLevel) AS ComfortLevel
+    WHERE ComfortLevel < 40 OR ComfortLevel > 50
+    RETURN b.id AS BuildingId, b.name AS BuildingName, ComfortLevel
+    """,
+)
+
+# The engine registers these in order and subscribes one reaction to them all.
+QUERIES = [
+    BUILDING_COMFORT_UI_QUERY,
+    BUILDING_COMFORT_LEVEL_QUERY,
+    FLOOR_COMFORT_LEVEL_QUERY,
+    ROOM_ALERT_QUERY,
+    FLOOR_ALERT_QUERY,
+    BUILDING_ALERT_QUERY,
 ]
-
-# The query ids the UI reaction subscribes to (all of them).
-ALL_QUERY_IDS = [q[0] for q in QUERIES]
-
-# The primary-key field of each query's rows. The reaction keeps a snapshot of
-# every query keyed by this field, so it can apply ADD/UPDATE/DELETE diffs by row
-# identity rather than rescanning.
-KEY_FIELDS: dict[str, str] = {
-    BUILDING_COMFORT_UI: "RoomId",
-    BUILDING_COMFORT_LEVEL: "BuildingId",
-    FLOOR_COMFORT_LEVEL: "FloorId",
-    ROOM_ALERT: "RoomId",
-    FLOOR_ALERT: "FloorId",
-    BUILDING_ALERT: "BuildingId",
-}

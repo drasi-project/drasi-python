@@ -59,7 +59,7 @@ from .config import (  # noqa: E402
     SIMULATION_INTERVAL_S,
     SOURCE_CONFIG,
 )
-from .queries import ALL_QUERY_IDS, KEY_FIELDS, QUERIES  # noqa: E402
+from .queries import QUERIES  # noqa: E402
 
 # Ranges chosen to straddle the comfortable band, so simulation makes alerts
 # come and go rather than sitting at one extreme.
@@ -83,6 +83,8 @@ class ComfortEngine:
         # Per query: a dict keyed by that query's primary-key field. The reaction
         # applies diffs into it; the UI reads a snapshot of the values.
         self._results: dict[str, dict[Any, dict[str, Any]]] = {}
+        # Which RETURN column identifies each query's rows, looked up by query id.
+        self._key_by_id = {query.id: query.key for query in QUERIES}
         self._version = 0
         self._simulation = False
 
@@ -121,21 +123,22 @@ class ComfortEngine:
 
         await self._drasi.add_source("postgres", "db", SOURCE_CONFIG, bootstrap=BOOTSTRAP_CONFIG)
 
-        for query_id, cypher, joins in QUERIES:
-            await self._drasi.add_query(query_id, cypher, ["db"], joins=joins or None)
-        for query_id, _, _ in QUERIES:
-            await self._drasi.wait_for_query(query_id)
+        for query in QUERIES:
+            await self._drasi.add_query(query.id, query.cypher, ["db"], joins=query.joins or None)
+        for query in QUERIES:
+            await self._drasi.wait_for_query(query.id)
 
         # Prime the snapshot from the bootstrapped result sets, then let the
         # reaction keep it current.
-        for query_id, _, _ in QUERIES:
-            rows = await self._drasi.get_query_results(query_id)
-            key_field = KEY_FIELDS[query_id]
+        for query in QUERIES:
+            rows = await self._drasi.get_query_results(query.id)
             with self._lock:
-                self._results[query_id] = {row[key_field]: row for row in rows}
+                self._results[query.id] = {row[query.key]: row for row in rows}
         self._room_ids = await self._load_room_ids()
 
-        await self._drasi.add_python_reaction("ui", ALL_QUERY_IDS, self._on_results)
+        await self._drasi.add_python_reaction(
+            "ui", [query.id for query in QUERIES], self._on_results
+        )
 
     def _on_results(self, event: QueryResultEvent) -> None:
         """Apply a batch of diffs to the snapshot.
@@ -146,7 +149,7 @@ class ComfortEngine:
         DELETE. Result sets are tiny, so this stays cheap.
         """
         query_id = event["query_id"]
-        key_field = KEY_FIELDS[query_id]
+        key_field = self._key_by_id[query_id]
         with self._lock:
             store = self._results.setdefault(query_id, {})
             for diff in event["results"]:
