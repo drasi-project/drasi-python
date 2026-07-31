@@ -18,12 +18,12 @@ Run it with:
 
     python app.py
 
-It connects Drasi's PostgreSQL source to the tutorial's `message` table, starts
-three continuous queries, and registers a single **Python reaction** that prints
-each result-set change to the console. Then it stays running and watches. There
-is no UI and no prompt: you drive changes by running SQL directly against the
-database (with `docker exec ... psql`, shown in the tutorial) and watch the
-queries react here in real time. Press Ctrl+C to stop.
+The whole demo is this one file. It connects Drasi's PostgreSQL source to the
+tutorial's `message` table, starts three continuous queries, and registers a
+single Python reaction that prints each result-set change to the console. Then
+it stays running and watches. There is no UI and no prompt: you drive changes by
+running SQL directly against the database (with `docker exec ... psql`, shown in
+the tutorial) and watch the queries react here in real time. Press Ctrl+C to stop.
 """
 
 from __future__ import annotations
@@ -40,16 +40,69 @@ import sys  # noqa: E402
 import time  # noqa: E402
 from typing import Any  # noqa: E402
 
-from demo.config import (  # noqa: E402
-    BOOTSTRAP_CONFIG,
-    INACTIVITY_SECONDS,
-    SOURCE_CONFIG,
-    SOURCE_ID,
-)
-from demo.queries import QUERIES  # noqa: E402
-
 from drasi import Drasi  # noqa: E402
 from drasi.types import QueryResultEvent  # noqa: E402
+
+# --- The source -------------------------------------------------------------
+# Connection settings for the tutorial's PostgreSQL database, read from the
+# environment with the same defaults the database uses.
+POSTGRES = {
+    "host": os.environ.get("POSTGRES_HOST", "localhost"),
+    "port": int(os.environ.get("POSTGRES_PORT", "5752")),
+    "database": os.environ.get("POSTGRES_DATABASE", "getting_started"),
+    "user": os.environ.get("POSTGRES_USER", "drasi_user"),
+    "password": os.environ.get("POSTGRES_PASSWORD", "drasi_password"),
+}
+
+# The Postgres source streams changes from the `message` table via logical
+# replication (CDC). The table is schema-qualified here (public.message) while
+# tableKeys uses the bare name; the node label Drasi sees is the bare name, so
+# the Cypher matches (m:message).
+SOURCE_CONFIG = {
+    **POSTGRES,
+    "sslMode": "prefer",
+    "tables": ["public.message"],
+    "tableKeys": [{"table": "message", "keyColumns": ["messageid"]}],
+    "slotName": "drasi_getting_started_slot",
+    "publicationName": "drasi_getting_started_pub",
+}
+# The bootstrap provider loads the rows that already exist when a query starts.
+BOOTSTRAP_CONFIG = {"kind": "postgres", **POSTGRES}
+
+# --- The three continuous queries -------------------------------------------
+# They build up in complexity: a filter, an aggregation, and a temporal query
+# that detects the *absence* of change.
+QUERIES = {
+    # Filter: messages whose text is exactly "Hello World", and who sent them.
+    "hello-world-from": """
+        MATCH (m:message)
+        WHERE m.message = 'Hello World'
+        RETURN m.messageid AS MessageId, m.sender AS MessageFrom
+    """,
+    # Aggregation: how many times each distinct message has been sent.
+    "message-count": """
+        MATCH (m:message)
+        RETURN m.message AS Message, count(m) AS Frequency
+    """,
+    # Absence of change: senders who have not sent a message in the last 20
+    # seconds. drasi.trueLater schedules a future re-evaluation so a sender
+    # appears the instant they cross the threshold, not only when some other
+    # change happens.
+    "inactive-people": """
+        MATCH (m:message)
+        WITH m.sender AS MessageFrom, max(drasi.changeDateTime(m)) AS LastMessageTimestamp
+        WHERE LastMessageTimestamp <= datetime.realtime() - duration({ seconds: 20 })
+           OR drasi.trueLater(
+                LastMessageTimestamp <= datetime.realtime() - duration({ seconds: 20 }),
+                LastMessageTimestamp + duration({ seconds: 20 })
+              )
+        RETURN MessageFrom, LastMessageTimestamp
+    """,
+}
+
+# How long a sender can be quiet before inactive-people flags them (matches the
+# duration in the query). Shown in the startup banner.
+INACTIVITY_SECONDS = 20
 
 
 def _row(row: dict[str, Any]) -> str:
@@ -85,23 +138,23 @@ async def main() -> None:
         await drasi.install_plugin("bootstrap/postgres")
         await drasi.start()
 
-        await drasi.add_source("postgres", SOURCE_ID, SOURCE_CONFIG, bootstrap=BOOTSTRAP_CONFIG)
+        await drasi.add_source("postgres", "messages", SOURCE_CONFIG, bootstrap=BOOTSTRAP_CONFIG)
 
-        for query in QUERIES:
-            await drasi.add_query(query.id, query.cypher, [SOURCE_ID])
-        for query in QUERIES:
-            await drasi.wait_for_query(query.id, timeout=60)
+        for query_id, cypher in QUERIES.items():
+            await drasi.add_query(query_id, cypher, ["messages"])
+        for query_id in QUERIES:
+            await drasi.wait_for_query(query_id, timeout=60)
 
         # Show the state each query bootstrapped from the existing rows.
         print("\n=== Initial results ===")
-        for query in QUERIES:
-            rows = await drasi.get_query_results(query.id)
-            print(f"\n[{query.id}] {len(rows)} row(s):")
+        for query_id in QUERIES:
+            rows = await drasi.get_query_results(query_id)
+            print(f"\n[{query_id}] {len(rows)} row(s):")
             for row in rows:
                 print(f"  {_row(row)}")
 
         # From here on, print changes as they arrive.
-        await drasi.add_python_reaction("console", [q.id for q in QUERIES], on_change)
+        await drasi.add_python_reaction("console", list(QUERIES), on_change)
 
         print(
             f"\n=== Watching for changes (Ctrl+C to stop) ===\n"

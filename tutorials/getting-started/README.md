@@ -150,7 +150,7 @@ docker exec getting-started-postgres psql -U drasi_user -d getting_started \
 `hello-world-from` drops that row and `message-count` decrements — a row leaving a result set is a change Drasi reports too.
 
 ## How It Works
-The whole demo is a small Python program in `tutorials/getting-started/`: `app.py` runs the engine and prints, and `demo/` holds the queries and configuration.
+The whole demo is a single file, `tutorials/getting-started/app.py`. Here's what each part does; the [complete file](#putting-it-all-together) is at the end.
 
 ### The Source
 
@@ -229,10 +229,110 @@ def on_change(event):
                 print(f"[{query_id}] ~ {before} -> {after}")
 
 
-await drasi.add_python_reaction("console", [q.id for q in QUERIES], on_change)
+await drasi.add_python_reaction("console", list(QUERIES), on_change)
 ```
 
 An `ADD` and a `DELETE` carry `data`; an `UPDATE` — and an `aggregation` change, like a `count` ticking up — carries `before` and `after`. After registering the reaction the app just `await asyncio.Event().wait()`s, so it stays in the foreground printing changes until you press Ctrl+C. See [Python reactions](../../guides/python-reactions/) for the full callback contract, or [Streaming results](../../guides/streaming/) to consume the same changes as an async iterator instead.
+
+## Putting It All Together
+The sections above walked through the program one piece at a time. Here is the complete `app.py` that `python app.py` actually runs — the source, the three queries, the reaction, and the loop, in a single file:
+
+```python
+import asyncio
+import os
+import sys
+import time
+
+os.environ.setdefault("RUST_LOG", "warn")  # quiet the engine's INFO logging
+
+from drasi import Drasi
+
+# --- The source: the tutorial's PostgreSQL database ---
+POSTGRES = {
+    "host": os.environ.get("POSTGRES_HOST", "localhost"),
+    "port": int(os.environ.get("POSTGRES_PORT", "5752")),
+    "database": os.environ.get("POSTGRES_DATABASE", "getting_started"),
+    "user": os.environ.get("POSTGRES_USER", "drasi_user"),
+    "password": os.environ.get("POSTGRES_PASSWORD", "drasi_password"),
+}
+SOURCE_CONFIG = {
+    **POSTGRES,
+    "sslMode": "prefer",
+    "tables": ["public.message"],
+    "tableKeys": [{"table": "message", "keyColumns": ["messageid"]}],
+    "slotName": "drasi_getting_started_slot",
+    "publicationName": "drasi_getting_started_pub",
+}
+BOOTSTRAP_CONFIG = {"kind": "postgres", **POSTGRES}
+
+# --- The three continuous queries ---
+QUERIES = {
+    "hello-world-from": """
+        MATCH (m:message)
+        WHERE m.message = 'Hello World'
+        RETURN m.messageid AS MessageId, m.sender AS MessageFrom
+    """,
+    "message-count": """
+        MATCH (m:message)
+        RETURN m.message AS Message, count(m) AS Frequency
+    """,
+    "inactive-people": """
+        MATCH (m:message)
+        WITH m.sender AS MessageFrom, max(drasi.changeDateTime(m)) AS LastMessageTimestamp
+        WHERE LastMessageTimestamp <= datetime.realtime() - duration({ seconds: 20 })
+           OR drasi.trueLater(
+                LastMessageTimestamp <= datetime.realtime() - duration({ seconds: 20 }),
+                LastMessageTimestamp + duration({ seconds: 20 })
+              )
+        RETURN MessageFrom, LastMessageTimestamp
+    """,
+}
+
+
+def row(r):
+    return "  ".join(f"{k}={v!r}" for k, v in r.items())
+
+
+# --- The reaction: print each result-set change ---
+def on_change(event):
+    query_id = event["query_id"]
+    for diff in event["results"]:
+        match diff:
+            case {"type": "ADD", "data": data}:
+                print(f"[{query_id}] + {row(data)}")
+            case {"type": "DELETE", "data": data}:
+                print(f"[{query_id}] - {row(data)}")
+            case {"type": "UPDATE" | "aggregation", "before": before, "after": after}:
+                print(f"[{query_id}] ~ {row(before)} -> {row(after)}")
+
+
+async def main():
+    sys.stdout.reconfigure(line_buffering=True)
+    async with await Drasi.create("getting-started") as drasi:
+        await drasi.install_plugin("source/postgres")
+        await drasi.install_plugin("bootstrap/postgres")
+        await drasi.start()
+
+        await drasi.add_source("postgres", "messages", SOURCE_CONFIG, bootstrap=BOOTSTRAP_CONFIG)
+        for query_id, cypher in QUERIES.items():
+            await drasi.add_query(query_id, cypher, ["messages"])
+        for query_id in QUERIES:
+            await drasi.wait_for_query(query_id, timeout=60)
+
+        print("=== Initial results ===")
+        for query_id in QUERIES:
+            for r in await drasi.get_query_results(query_id):
+                print(f"[{query_id}]   {row(r)}")
+
+        await drasi.add_python_reaction("console", list(QUERIES), on_change)
+        print("=== Watching for changes (Ctrl+C to stop) ===")
+        await asyncio.Event().wait()
+
+
+asyncio.run(main())
+```
+
+That's the whole thing: a live view over a database in one file, with no polling and no UI.
 
 ## Clean Up
 When you're finished, stop the app with **Ctrl+C** in Terminal 1, then remove the database container:
