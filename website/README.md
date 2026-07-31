@@ -22,7 +22,7 @@ standard build cannot compile the theme's SCSS — and Node for the theme's asse
 cd website
 npm install
 npm --prefix themes/docsy install
-npm run serve      # http://localhost:1313/drasi-python/
+npm run serve      # http://localhost:1313/
 ```
 
 To reproduce what CI publishes:
