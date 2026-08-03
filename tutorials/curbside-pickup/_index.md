@@ -73,9 +73,21 @@ This tutorial needs **Docker** (it runs PostgreSQL and MySQL) and **Python 3.10+
 
 ### Option A: Dev Container or GitHub Codespaces (recommended)
 
-1. Open the [`drasi-python`](https://github.com/drasi-project/drasi-python) repository in VS Code and run **Reopen in Container** (or create a **Codespace** from the repo's **Code** menu).
-2. When prompted for a configuration, choose **Curbside Pickup Tutorial (Python)**.
-3. Wait for the container to finish. Its setup script installs the tutorial's Python dependencies and the Docker tooling for the two databases.
+**VS Code (local dev container)**
+
+1. Open the [`drasi-python`](https://github.com/drasi-project/drasi-python) repository in VS Code.
+2. Run **Dev Containers: Reopen in Container**.
+3. When prompted for a configuration, choose **Curbside Pickup Tutorial (Python)**.
+4. Wait for the container to finish. Its setup script installs the tutorial's Python dependencies and the Docker tooling for the two databases.
+
+**GitHub Codespaces**
+
+The default **Create codespace** button does not ask which configuration to use. Pick the tutorial config explicitly:
+
+1. On the [`drasi-python`](https://github.com/drasi-project/drasi-python) repo page, open the green **Code** menu and select the **Codespaces** tab.
+2. Open the `...` menu next to **Create codespace on ...** and choose **New with options…**.
+3. Under **Dev container configuration**, select **Curbside Pickup Tutorial (Python)**, then create the codespace.
+4. Wait for the container to finish. Its setup script installs the tutorial's Python dependencies and the Docker tooling for the two databases.
 
 That's it. Skip ahead to [Step 2](#run).
 
