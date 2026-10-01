@@ -35,9 +35,9 @@ _spec.loader.exec_module(pins_module)
 def test_reads_exact_pins_from_cargo_toml() -> None:
     pins = pins_module.cargo_pins(ROOT / "Cargo.toml")
     assert pins == {
-        "drasi-core": "0.5.7",
-        "drasi-lib": "0.8.9",
-        "drasi-plugin-sdk": "0.10.0",
+        "drasi-core": "0.5.10",
+        "drasi-lib": "0.9.3",
+        "drasi-plugin-sdk": "0.11.3",
     }
 
 

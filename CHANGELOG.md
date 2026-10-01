@@ -7,6 +7,35 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Changed
+
+- Built against drasi-lib 0.9.3, drasi-core 0.5.10, drasi-host-sdk 0.11.3 and
+  drasi-plugin-sdk 0.11.3 (previously 0.8.9, 0.5.7, 0.10.0 and 0.10.0). The
+  store crates moved with them: drasi-state-store-redb 0.2.8 and
+  drasi-index-rocksdb 0.6.4. Published plugins must match on `major.minor`;
+  the current `ghcr.io/drasi-project` releases do. `host_info()` now reports
+  FFI ABI 0.14.0.
+
+- Reactions registered before `start()` now start after their queries. drasi-lib
+  0.9 will not subscribe to a query that is still stopped, and the query
+  auto-start workaround was starting reactions first.
+
+- A durable reaction now requires a persistent index store as well as a state
+  store. drasi-lib 0.9 rejects a durable subscription to an in-memory query,
+  because the outbox the checkpoint points at would not survive a restart.
+  Pass `index_store={"kind": "rocksdb", "path": ...}` to `Drasi.create`.
+  Missing it raises `DURABLE_REQUIRES_INDEX_STORE`.
+
+- A failing reaction callback follows the recovery policy. `strict` and
+  `auto_reset` stop the reaction and leave the checkpoint where it was, so the
+  event is replayed the next time the reaction starts. `skip_gap` records the
+  event as handled and continues. Previously the loop logged the failure and
+  carried on without advancing the checkpoint.
+
+- Plugin reactions report their own recovery policy and bootstrap
+  implementation. The wrapper had been answering with the trait defaults, so a
+  plugin's policy never reached startup recovery.
+
 ### Documentation
 
 - How to declare a synthetic join. The concepts page said a query can span

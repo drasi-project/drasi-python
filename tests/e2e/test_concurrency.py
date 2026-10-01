@@ -19,6 +19,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+import pytest
+
 from drasi import Drasi, Stream
 from drasi.types import QueryResultEvent, SourceChange
 
@@ -119,8 +121,14 @@ async def test_simultaneous_streams_on_one_query_each_receive_the_event(engine: 
 async def test_a_slow_durable_reaction_does_not_block_query_updates(
     tmp_path: Any,
 ) -> None:
+    from drasi import host_info
+
+    if "rocksdb" not in host_info()["index_backends"]:
+        pytest.skip("built without the rocksdb feature")
     drasi = await Drasi.create(
-        "t-slow-reaction", state_store={"kind": "redb", "path": str(tmp_path / "state.redb")}
+        "t-slow-reaction",
+        state_store={"kind": "redb", "path": str(tmp_path / "state.redb")},
+        index_store={"kind": "rocksdb", "path": str(tmp_path / "index")},
     )
     try:
         await running_orders_engine(drasi)

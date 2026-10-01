@@ -77,6 +77,7 @@ The full set is available at runtime as `drasi.ERROR_CODES`.
 | `UNKNOWN_IDENTITY_KIND` | No identity provider matches that kind |
 | `IDENTITY_CONFIG_INVALID` | The identity block is missing fields its kind needs |
 | `DURABLE_REQUIRES_STATE_STORE` | A durable reaction was added without a state store |
+| `DURABLE_REQUIRES_INDEX_STORE` | A durable reaction was added without a persistent index store |
 | `UNKNOWN_QUERY_LANGUAGE` | The language was not `cypher` or `gql` |
 | `CONFIG_INVALID` | The configuration was malformed |
 | `PLUGIN_SIGNATURE_INVALID` | Signature verification failed |

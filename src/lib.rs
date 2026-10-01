@@ -37,9 +37,9 @@ use pyo3::prelude::*;
 /// Published plugins are annotated with the versions they were built against,
 /// and the host only accepts a plugin whose versions match these on
 /// `major.minor`.
-pub const DRASI_CORE_VERSION: &str = "0.5.7";
-pub const DRASI_LIB_VERSION: &str = "0.8.9";
-pub const DRASI_SDK_VERSION: &str = "0.10.0";
+pub const DRASI_CORE_VERSION: &str = "0.5.10";
+pub const DRASI_LIB_VERSION: &str = "0.9.3";
+pub const DRASI_SDK_VERSION: &str = "0.11.3";
 
 #[pymodule]
 fn _drasi(module: &Bound<'_, PyModule>) -> PyResult<()> {

@@ -105,6 +105,14 @@ impl CreateOptions {
         self.state_store.is_some()
     }
 
+    /// Whether a persistent index store was configured.
+    ///
+    /// Queries otherwise keep their outbox in memory. A durable reaction cannot
+    /// resume from that after a restart, so drasi-lib rejects the subscription.
+    pub fn has_index_store(&self) -> bool {
+        self.index_store.is_some()
+    }
+
     /// Applies the options to a builder, returning the secrets for the plugin
     /// config resolver.
     ///

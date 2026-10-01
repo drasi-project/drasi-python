@@ -84,7 +84,7 @@ async def test_an_engine_can_process_changes_after_stop_then_start() -> None:
 async def test_a_query_added_before_start_runs_exactly_once() -> None:
     """Registering a query before `start()` must leave it running, not in error.
 
-    `drasi-lib` 0.8.9 starts an auto-start query the moment it is added, with
+    `drasi-lib` starts an auto-start query the moment it is added, with
     no `is_running()` guard (`add_source` and `add_reaction` both have one), so
     `start()` would start it a second time. That left the query reporting
     `Error` ("already running") while it was in fact running, and tripped an

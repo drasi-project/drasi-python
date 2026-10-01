@@ -48,9 +48,9 @@ Check it worked:
 ```
 
 ```
-{'arch_suffix': 'darwin-arm64', 'core_version': '0.5.7',
- 'ffi_sdk_version': '0.11.0', 'lib_version': '0.8.9',
- 'sdk_version': '0.10.0', 'target_triple': 'aarch64-apple-darwin'}
+{'arch_suffix': 'darwin-arm64', 'core_version': '0.5.10',
+ 'ffi_sdk_version': '0.14.0', 'lib_version': '0.9.3',
+ 'sdk_version': '0.11.3', 'target_triple': 'aarch64-apple-darwin'}
 ```
 
 (Your `target_triple` and `arch_suffix` will reflect your own machine.)
@@ -146,13 +146,13 @@ matches your machine, so you never deal with architecture tags.
 
 ```
 host: aarch64-apple-darwin
-  drasi-core 0.5.7, drasi-lib 0.8.9
-  plugin sdk 0.10.0, ffi abi 0.11.0
+  drasi-core 0.5.10, drasi-lib 0.9.3
+  plugin sdk 0.11.3, ffi abi 0.14.0
 
 56 plugins published; sources include:
   cloudflare-radar, dataverse, grpc, gtfs-rt, here-traffic, http, ...
 
-source/mock resolves to 0.2.7 for aarch64-apple-darwin
+source/mock resolves to 0.2.12 for aarch64-apple-darwin
 installed to /tmp/drasi-python-plugins/plugin-demo/libdrasi_source_mock.dylib
 signature: unsigned
 

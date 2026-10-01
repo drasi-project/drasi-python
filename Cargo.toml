@@ -25,7 +25,7 @@ pyo3-async-runtimes = { version = "0.29", features = ["tokio-runtime"] }
 # ghcr.io/drasi-project are annotated with the drasi-core / drasi-lib /
 # drasi-plugin-sdk versions they were built against, and the host rejects any
 # plugin whose versions do not match ours on major.minor. See docs/plugins.md.
-drasi-lib = { version = "=0.8.9", features = [
+drasi-lib = { version = "=0.9.3", features = [
     # Query middleware. `jq` is deliberately excluded: it pulls in `jq-rs`,
     # which links against libjq, and a C dependency would put the
     # cross-compiled aarch64 and Windows wheels at risk. The rest have no
@@ -37,11 +37,11 @@ drasi-lib = { version = "=0.8.9", features = [
     "middleware-relabel",
     "middleware-unwind",
 ] }
-drasi-core = "=0.5.7"
-drasi-host-sdk = { version = "=0.10.0", features = ["watcher", "registry"] }
-drasi-plugin-sdk = "=0.10.0"
-drasi-state-store-redb = "=0.2.4"
-drasi-index-rocksdb = { version = "=0.5.8", optional = true, features = ["plugin-descriptor"] }
+drasi-core = "=0.5.10"
+drasi-host-sdk = { version = "=0.11.3", features = ["watcher", "registry"] }
+drasi-plugin-sdk = "=0.11.3"
+drasi-state-store-redb = "=0.2.8"
+drasi-index-rocksdb = { version = "=0.6.4", optional = true, features = ["plugin-descriptor"] }
 
 anyhow = "1"
 async-trait = "0.1"

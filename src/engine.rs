@@ -54,6 +54,9 @@ pub struct Inner {
     /// Whether a durable state store was configured. Durable reactions need
     /// one to persist their checkpoints across restarts.
     durable_capable: bool,
+    /// Whether a persistent index store was configured. Without one every
+    /// query is volatile, and a durable reaction cannot subscribe to it.
+    persistent_indexes: bool,
     /// Set by `close`. The engine refuses `start` once shut down, but would
     /// otherwise still accept components that could never run.
     closed: AtomicBool,
@@ -62,11 +65,16 @@ pub struct Inner {
     #[allow(dead_code)]
     identity_host: Option<Arc<PluginHost>>,
     /// Queries registered while the engine was stopped, whose auto-start was
-    /// suppressed. `drasi-lib` 0.8.9 starts an auto-start query the moment it
-    /// is added, without the `is_running()` guard that `add_source` and
+    /// suppressed. `drasi-lib` starts an auto-start query the moment it is
+    /// added, without the `is_running()` guard that `add_source` and
     /// `add_reaction` both apply, so `start()` would then start it a second
     /// time. See `add_query`.
     deferred_queries: Mutex<Vec<String>>,
+    /// Reactions registered while the engine was stopped, whose auto-start
+    /// was suppressed. `DrasiLib::start` starts reactions before this binding
+    /// starts deferred queries, and drasi-lib 0.9 will not subscribe to a
+    /// query that is still stopped. See `start`.
+    deferred_reactions: Mutex<Vec<String>>,
 }
 
 impl Inner {
@@ -84,7 +92,7 @@ impl Inner {
         Ok(())
     }
 
-    /// Registers a query, suppressing the premature start in `drasi-lib` 0.8.9.
+    /// Registers a query, suppressing the premature start in `drasi-lib`.
     ///
     /// `add_query` there starts an auto-start query immediately even when the
     /// engine is stopped, unlike `add_source` and `add_reaction`, which both
@@ -186,6 +194,52 @@ impl Inner {
         self.deferred_queries.lock().await.retain(|held| held != id);
     }
 
+    /// Whether an auto-start reaction has to wait until deferred queries run.
+    ///
+    /// `DrasiLib::start` starts reactions before this binding starts the
+    /// queries whose auto-start `register_query` suppressed. drasi-lib 0.9
+    /// refuses to subscribe to a query that is still stopped, so those
+    /// reactions fail at startup. Register them with auto-start off and start
+    /// them from `start()` once the queries are running.
+    async fn hold_reaction_until_queries(&self, auto_start: bool) -> bool {
+        auto_start && !self.core.is_running().await
+    }
+
+    async fn note_deferred_reaction(&self, id: &str, defer: bool) {
+        let mut deferred = self.deferred_reactions.lock().await;
+        match (defer, deferred.iter().any(|held| held == id)) {
+            (true, false) => deferred.push(id.to_string()),
+            (false, true) => deferred.retain(|held| held != id),
+            _ => {}
+        }
+    }
+
+    async fn forget_deferred_reaction(&self, id: &str) {
+        self.deferred_reactions
+            .lock()
+            .await
+            .retain(|held| held != id);
+    }
+
+    /// Starts the reactions whose auto-start was suppressed so they would not
+    /// subscribe before deferred queries were running.
+    ///
+    /// Kept across restarts: their stored config says auto-start is off, so
+    /// `start_all` would skip them on every later `start()`.
+    async fn start_deferred_reactions(&self) -> PyResult<()> {
+        let ids = self.deferred_reactions.lock().await.clone();
+        for id in ids {
+            let already_running = matches!(
+                self.core.get_reaction_status(&id).await,
+                Ok(ComponentStatus::Running)
+            );
+            if !already_running {
+                self.core.start_reaction(&id).await.map_err(engine_error)?;
+            }
+        }
+        Ok(())
+    }
+
     fn next_stream_id(&self) -> u64 {
         self.stream_counter.fetch_add(1, Ordering::Relaxed)
     }
@@ -258,6 +312,7 @@ impl Drasi {
         // Parse eagerly so a malformed option raises before the caller awaits.
         let options = CreateOptions::parse(secrets, state_store, index_store, identity)?;
         let durable_capable = options.has_state_store();
+        let persistent_indexes = options.has_index_store();
         let wanted_identity = options.identity_plugin();
         // The identity plugin's own configuration may reference a secret, so the
         // headless host gets the same mapping the engine will use.
@@ -310,8 +365,10 @@ impl Drasi {
                     default_plugin_dir: Mutex::new(None),
                     stream_counter: AtomicU64::new(0),
                     durable_capable,
+                    persistent_indexes,
                     closed: AtomicBool::new(false),
                     deferred_queries: Mutex::new(Vec::new()),
+                    deferred_reactions: Mutex::new(Vec::new()),
                     identity_host,
                 }),
             };
@@ -376,6 +433,7 @@ impl Drasi {
                 .as_ref(),
         )?;
         let durable_capable = options.has_state_store();
+        let persistent_indexes = options.has_index_store();
 
         // Everything is parsed before the engine exists, so a malformed
         // configuration fails without leaving a half-built engine behind.
@@ -402,8 +460,10 @@ impl Drasi {
                     default_plugin_dir: Mutex::new(None),
                     stream_counter: AtomicU64::new(0),
                     durable_capable,
+                    persistent_indexes,
                     closed: AtomicBool::new(false),
                     deferred_queries: Mutex::new(Vec::new()),
+                    deferred_reactions: Mutex::new(Vec::new()),
                     identity_host: None,
                 }),
             };
@@ -454,12 +514,13 @@ impl Drasi {
                             &reaction.kind,
                         )
                     })?;
+                let hold = inner.hold_reaction_until_queries(reaction.auto_start).await;
                 let created = descriptor
                     .create_reaction(
                         &reaction.id,
                         reaction.queries.clone(),
                         &reaction.config,
-                        reaction.auto_start,
+                        reaction.auto_start && !hold,
                     )
                     .await
                     .map_err(engine_error)?;
@@ -468,6 +529,7 @@ impl Drasi {
                     .add_reaction(BoxedReaction(created))
                     .await
                     .map_err(engine_error)?;
+                inner.note_deferred_reaction(&reaction.id, hold).await;
             }
 
             Ok(drasi)
@@ -485,7 +547,8 @@ impl Drasi {
         let inner = self.inner();
         future_into_py(py, async move {
             inner.core.start().await.map_err(engine_error)?;
-            inner.start_deferred_queries().await
+            inner.start_deferred_queries().await?;
+            inner.start_deferred_reactions().await
         })
     }
 
@@ -892,11 +955,16 @@ impl Drasi {
             let id = reaction_id
                 .unwrap_or_else(|| format!("__stream_{query_id}_{}", inner.next_stream_id()));
             let (receiver, sender) = streams::channel();
+            let hold = inner.hold_reaction_until_queries(true).await;
             inner
                 .core
-                .add_reaction(StreamingReaction::new(&id, vec![query_id.clone()], sender))
+                .add_reaction(
+                    StreamingReaction::new(&id, vec![query_id.clone()], sender)
+                        .with_auto_start(!hold),
+                )
                 .await
                 .map_err(engine_error)?;
+            inner.note_deferred_reaction(&id, hold).await;
             Ok(Stream::new(
                 receiver,
                 format!("results of query '{query_id}'"),
@@ -1182,11 +1250,16 @@ impl Drasi {
             let reaction_id = format!("__stream_{query_id}_{}", inner.next_stream_id());
             let description = format!("results of query '{query_id}'");
             let (rx, sender) = streams::channel();
+            let hold = inner.hold_reaction_until_queries(true).await;
             inner
                 .core
-                .add_reaction(StreamingReaction::new(&reaction_id, vec![query_id], sender))
+                .add_reaction(
+                    StreamingReaction::new(&reaction_id, vec![query_id], sender)
+                        .with_auto_start(!hold),
+                )
                 .await
                 .map_err(engine_error)?;
+            inner.note_deferred_reaction(&reaction_id, hold).await;
             streams::pump_callback(rx, callback, description);
             Ok(())
         })
@@ -1698,8 +1771,9 @@ impl Drasi {
     ///
     /// Unlike `add_python_reaction`, this waits for the coroutine to finish. If
     /// it raises, the checkpoint is left where it was, so the event is replayed
-    /// after a restart rather than lost. That guarantee needs somewhere durable
-    /// to keep the checkpoint, so a `state_store` is required.
+    /// after a restart rather than lost. That guarantee needs a `state_store`
+    /// for the checkpoint and an `index_store` so the subscribed queries are
+    /// not volatile.
     #[pyo3(signature = (id, query_ids, callback, *, recovery_policy = "strict"))]
     fn add_durable_python_reaction<'py>(
         &self,
@@ -1718,6 +1792,13 @@ impl Drasi {
                  pass state_store={'kind': 'redb', 'path': ...} to Drasi.create",
             ));
         }
+        if !self.inner.persistent_indexes {
+            return Err(error(
+                DrasiErrorCode::DurableRequiresIndexStore,
+                "a durable reaction cannot subscribe to an in-memory query; \
+                 pass index_store={'kind': 'rocksdb', 'path': ...} to Drasi.create",
+            ));
+        }
         require_callable(py, &callback)?;
         require_coroutine_function(py, &callback)?;
         let recovery = parse_recovery_policy(recovery_policy)?;
@@ -1726,13 +1807,17 @@ impl Drasi {
         let inner = self.inner();
         inner.ensure_open()?;
         future_into_py(py, async move {
+            let hold = inner.hold_reaction_until_queries(true).await;
             inner
                 .core
-                .add_reaction(PythonReaction::durable(
-                    &id, query_ids, callback, recovery, locals,
-                ))
+                .add_reaction(
+                    PythonReaction::durable(&id, query_ids, callback, recovery, locals)
+                        .with_auto_start(!hold),
+                )
                 .await
-                .map_err(engine_error)
+                .map_err(engine_error)?;
+            inner.note_deferred_reaction(&id, hold).await;
+            Ok(())
         })
     }
 
@@ -1826,8 +1911,9 @@ impl Drasi {
                 .ok_or_else(|| {
                     unknown_kind(DrasiErrorCode::UnknownReactionKind, "reaction", &kind)
                 })?;
+            let hold = inner.hold_reaction_until_queries(auto_start).await;
             let reaction = descriptor
-                .create_reaction(&id, query_ids, &config, auto_start)
+                .create_reaction(&id, query_ids, &config, auto_start && !hold)
                 .await
                 .map_err(engine_error)?;
             inner
@@ -1837,7 +1923,9 @@ impl Drasi {
                     HashMap::from([("pluginKind".to_string(), kind)]),
                 )
                 .await
-                .map_err(engine_error)
+                .map_err(engine_error)?;
+            inner.note_deferred_reaction(&id, hold).await;
+            Ok(())
         })
     }
 
@@ -1960,15 +2048,18 @@ impl Drasi {
                 .ok_or_else(|| {
                     unknown_kind(DrasiErrorCode::UnknownReactionKind, "reaction", &kind)
                 })?;
+            let hold = inner.hold_reaction_until_queries(auto_start).await;
             let reaction = descriptor
-                .create_reaction(&id, query_ids, &config, auto_start)
+                .create_reaction(&id, query_ids, &config, auto_start && !hold)
                 .await
                 .map_err(engine_error)?;
             inner
                 .core
                 .update_reaction(&id, BoxedReaction(reaction))
                 .await
-                .map_err(engine_error)
+                .map_err(engine_error)?;
+            inner.note_deferred_reaction(&id, hold).await;
+            Ok(())
         })
     }
 
@@ -1986,7 +2077,9 @@ impl Drasi {
                 .core
                 .remove_reaction(&id, cleanup)
                 .await
-                .map_err(engine_error)
+                .map_err(engine_error)?;
+            inner.forget_deferred_reaction(&id).await;
+            Ok(())
         })
     }
 
@@ -2097,11 +2190,14 @@ impl Drasi {
         let inner = self.inner();
         inner.ensure_open()?;
         future_into_py(py, async move {
+            let hold = inner.hold_reaction_until_queries(true).await;
             inner
                 .core
-                .add_reaction(PythonReaction::new(&id, query_ids, callback))
+                .add_reaction(PythonReaction::new(&id, query_ids, callback).with_auto_start(!hold))
                 .await
-                .map_err(engine_error)
+                .map_err(engine_error)?;
+            inner.note_deferred_reaction(&id, hold).await;
+            Ok(())
         })
     }
 }

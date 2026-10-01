@@ -44,8 +44,8 @@ USER_AGENT = "drasi-python-plugin-builder"
 
 # (crate, version, cargo lib name)
 PLUGINS = [
-    ("drasi-source-mock", "0.2.7", "drasi_source_mock"),
-    ("drasi-reaction-log", "0.2.5", "drasi_reaction_log"),
+    ("drasi-source-mock", "0.2.12", "drasi_source_mock"),
+    ("drasi-reaction-log", "0.2.9", "drasi_reaction_log"),
 ]
 
 

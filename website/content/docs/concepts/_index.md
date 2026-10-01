@@ -152,7 +152,9 @@ engine:
   that feature. `host_info()["index_backends"]` reports which are available.
 
 A durable reaction records how far it got, so after a restart it resumes rather than
-replaying from the beginning or silently skipping what it missed.
+replaying from the beginning or silently skipping what it missed. That only works if
+the queries it watches are persistent too, so it needs both stores: `state_store` for
+the checkpoint and `index_store` for the query outbox.
 
 ## Next
 

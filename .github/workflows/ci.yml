@@ -413,12 +413,13 @@ jobs:
         run: |
           .venv/bin/maturin develop --features rocksdb
 
-      # The tests ask the build which index backends it has, so no environment
-      # variable is needed — and cannot drift from what was actually compiled.
-      - name: RocksDB-backed index store tests
+      # Durable reactions need a persistent index, so the hermetic suite runs
+      # here as well as in the default build. The tests ask the build which
+      # index backends it has, so no environment variable is needed.
+      - name: Hermetic tests with RocksDB enabled
         run: |
           .venv/bin/python -c "import drasi; assert 'rocksdb' in drasi.host_info()['index_backends']"
-          .venv/bin/pytest tests/e2e/test_stores.py -v
+          .venv/bin/pytest -m "not plugins and not oci and not docker" -v
 
   coverage:
     name: Conversion and error coverage

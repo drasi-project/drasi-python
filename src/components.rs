@@ -284,6 +284,14 @@ impl Reaction for BoxedReaction {
         self.0.needs_snapshot_on_fresh_start()
     }
 
+    fn default_recovery_policy(&self) -> ReactionRecoveryPolicy {
+        self.0.default_recovery_policy()
+    }
+
+    async fn bootstrap(&self, ctx: drasi_lib::reactions::BootstrapContext) -> Result<()> {
+        self.0.bootstrap(ctx).await
+    }
+
     async fn initialize(&self, context: ReactionRuntimeContext) {
         self.0.initialize(context).await;
     }
@@ -329,6 +337,11 @@ impl StreamingReaction {
             sender: std::sync::Mutex::new(Some(sender)),
         }
     }
+
+    pub fn with_auto_start(mut self, auto_start: bool) -> Self {
+        self.base.auto_start = auto_start;
+        self
+    }
 }
 
 #[async_trait]
@@ -367,9 +380,12 @@ impl Reaction for StreamingReaction {
             return Ok(());
         };
 
+        let policy = self
+            .base
+            .resolved_recovery_policy(ReactionRecoveryPolicy::Strict);
         let task = tokio::spawn(async move {
             let result = base
-                .run_standard_loop(shutdown_rx, checkpoints, move |event| {
+                .run_standard_loop(shutdown_rx, checkpoints, policy, move |event| {
                     let sender = sender.clone();
                     async move {
                         let value = serde_json::to_value(&*event)?;
@@ -442,6 +458,11 @@ impl PythonReaction {
             durable: true,
             locals: Some(locals),
         }
+    }
+
+    pub fn with_auto_start(mut self, auto_start: bool) -> Self {
+        self.base.auto_start = auto_start;
+        self
     }
 }
 
@@ -516,6 +537,17 @@ impl Reaction for PythonReaction {
         self.durable
     }
 
+    fn default_recovery_policy(&self) -> ReactionRecoveryPolicy {
+        self.base
+            .resolved_recovery_policy(ReactionRecoveryPolicy::Strict)
+    }
+
+    /// `auto_reset` re-bootstraps from a snapshot. The other policies do not,
+    /// and drasi-lib rejects the contradictory pairings.
+    fn needs_snapshot_on_fresh_start(&self) -> bool {
+        self.default_recovery_policy() == ReactionRecoveryPolicy::AutoReset
+    }
+
     async fn initialize(&self, context: ReactionRuntimeContext) {
         self.base.initialize(context).await;
     }
@@ -527,9 +559,10 @@ impl Reaction for PythonReaction {
         let callback = Arc::clone(&self.callback);
 
         let locals = self.locals.clone();
+        let policy = self.default_recovery_policy();
         let task = tokio::spawn(async move {
             let result = base
-                .run_standard_loop(shutdown_rx, checkpoints, move |event| {
+                .run_standard_loop(shutdown_rx, checkpoints, policy, move |event| {
                     let callback = Arc::clone(&callback);
                     let locals = locals.clone();
                     async move {
