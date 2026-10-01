@@ -7,6 +7,13 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-01
+
+Built against drasi-lib 0.9. This is a minor release because two behaviour
+changes can break a setup that worked on 0.2.0: a durable reaction now needs a
+persistent index store, and a failing reaction callback follows its recovery
+policy instead of logging and continuing.
+
 ### Changed
 
 - Built against drasi-lib 0.9.3, drasi-core 0.5.10, drasi-host-sdk 0.11.3 and
