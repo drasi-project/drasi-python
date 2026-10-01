@@ -11,9 +11,9 @@ Plugins are published as OCI artifacts to `ghcr.io/drasi-project`:
 ```
 ghcr.io/drasi-project/{type}/{kind}:{version}-{arch}
 
-ghcr.io/drasi-project/source/postgres:0.1.13-linux-amd64
-ghcr.io/drasi-project/source/mock:0.2.7-darwin-arm64
-ghcr.io/drasi-project/reaction/log:0.2.5-linux-arm64
+ghcr.io/drasi-project/source/postgres:0.2.12-linux-amd64
+ghcr.io/drasi-project/source/mock:0.2.12-darwin-arm64
+ghcr.io/drasi-project/reaction/log:0.2.9-linux-arm64
 ```
 
 Short references are expanded against the default registry, so `source/postgres`
@@ -49,10 +49,10 @@ Inspect what this host offers:
 >>> import drasi
 >>> drasi.host_info()
 {'arch_suffix': 'darwin-arm64',
- 'core_version': '0.5.7',
- 'ffi_sdk_version': '0.11.0',
- 'lib_version': '0.8.9',
- 'sdk_version': '0.10.0',
+ 'core_version': '0.5.10',
+ 'ffi_sdk_version': '0.14.0',
+ 'lib_version': '0.9.3',
+ 'sdk_version': '0.11.3',
  'target_triple': 'aarch64-apple-darwin'}
 ```
 

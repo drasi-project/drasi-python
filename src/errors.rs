@@ -56,6 +56,7 @@ pub enum DrasiErrorCode {
     UnknownIdentityKind,
     IdentityConfigInvalid,
     DurableRequiresStateStore,
+    DurableRequiresIndexStore,
     UnknownQueryLanguage,
     ConfigInvalid,
     PluginSignatureInvalid,
@@ -88,6 +89,7 @@ impl DrasiErrorCode {
             Self::UnknownIdentityKind => "UNKNOWN_IDENTITY_KIND",
             Self::IdentityConfigInvalid => "IDENTITY_CONFIG_INVALID",
             Self::DurableRequiresStateStore => "DURABLE_REQUIRES_STATE_STORE",
+            Self::DurableRequiresIndexStore => "DURABLE_REQUIRES_INDEX_STORE",
             Self::UnknownQueryLanguage => "UNKNOWN_QUERY_LANGUAGE",
             Self::ConfigInvalid => "CONFIG_INVALID",
             Self::PluginSignatureInvalid => "PLUGIN_SIGNATURE_INVALID",
@@ -122,6 +124,7 @@ impl DrasiErrorCode {
             UnknownIdentityKind,
             IdentityConfigInvalid,
             DurableRequiresStateStore,
+            DurableRequiresIndexStore,
             UnknownQueryLanguage,
             ConfigInvalid,
             PluginSignatureInvalid,
@@ -153,6 +156,7 @@ impl DrasiErrorCode {
             | IdentityKindRequired
             | IdentityConfigInvalid
             | DurableRequiresStateStore
+            | DurableRequiresIndexStore
             | ConfigInvalid => py.get_type::<ConfigError>().into(),
 
             NoPySource

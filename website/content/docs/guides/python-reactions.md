@@ -58,12 +58,16 @@ An ordinary reaction starts from scratch after a restart: whatever was delivered
 the process was down is gone. A **durable** reaction records how far it got, and
 resumes from there.
 
-It needs a state store, configured when the engine is created:
+It needs two stores, configured when the engine is created. The state store keeps the
+checkpoint. The index store keeps the query's outbox, which is what the checkpoint
+points at. An in-memory query is rejected: after a restart there would be nothing to
+resume from.
 
 ```python
 drasi = await Drasi.create(
     "app",
-    state_store={"kind": "redb", "path": "/var/lib/myapp/drasi"},
+    state_store={"kind": "redb", "path": "/var/lib/myapp/drasi/state.redb"},
+    index_store={"kind": "rocksdb", "path": "/var/lib/myapp/drasi/index"},
 )
 ```
 
@@ -87,7 +91,7 @@ for example when the data it referred to is no longer available after a restart:
 | Policy | Behaviour |
 | --- | --- |
 | `strict` | Refuse to start rather than deliver an incomplete stream. The default. |
-| `auto_reset` | Start again from the current position, accepting the gap. |
+| `auto_reset` | Move the checkpoint to the current result-set head and continue. The rows already in the result set are not replayed to the callback. |
 | `skip_gap` | Continue past the gap and carry on from what is available. |
 
 `strict` is the default: the alternatives accept data loss.
@@ -97,8 +101,10 @@ The reaction loop runs off your event loop, so a plain function cannot be awaite
 there. Registering one raises immediately.
 {{% /alert %}}
 
-Checkpoints advance only after your callback returns without raising. If it raises, the
-checkpoint stays where it was and the event is delivered again on the next attempt.
+Checkpoints advance only after your callback returns without raising. If it raises
+under `strict` or `auto_reset`, the reaction stops in an error state and the
+checkpoint stays put, so the event is delivered again the next time the reaction
+starts. `skip_gap` records the event as handled and continues.
 
 ## Reading results directly
 

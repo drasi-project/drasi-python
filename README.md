@@ -159,7 +159,11 @@ A durable reaction only advances its checkpoint once your callback succeeds, so
 an unhandled event is replayed after a restart:
 
 ```python
-drasi = await Drasi.create("app", state_store={"kind": "redb", "path": "state.redb"})
+drasi = await Drasi.create(
+    "app",
+    state_store={"kind": "redb", "path": "state.redb"},
+    index_store={"kind": "rocksdb", "path": "index"},
+)
 
 
 async def handle(event):

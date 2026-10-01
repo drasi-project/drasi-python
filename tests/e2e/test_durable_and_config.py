@@ -22,7 +22,7 @@ from typing import Any
 
 import pytest
 
-from drasi import ConfigError, Drasi, DrasiError, UnknownKindError
+from drasi import ConfigError, Drasi, DrasiError, UnknownKindError, host_info
 from drasi.types import QueryResultEvent, SourceChange
 
 from .helpers import wait_for, wait_for_at_least_rows, wait_for_query_running
@@ -47,9 +47,17 @@ def plugin_dir() -> Path:
     return directory
 
 
+def require_persistent_index() -> None:
+    if "rocksdb" not in host_info()["index_backends"]:
+        pytest.skip("built without the rocksdb feature")
+
+
 async def durable_engine(tmp_path: Path, name: str = "durable") -> Drasi:
+    require_persistent_index()
     engine = await Drasi.create(
-        name, state_store={"kind": "redb", "path": str(tmp_path / "state.redb")}
+        name,
+        state_store={"kind": "redb", "path": str(tmp_path / "state.redb")},
+        index_store={"kind": "rocksdb", "path": str(tmp_path / "index")},
     )
     await engine.start()
     await engine.add_python_source("orders")
@@ -66,6 +74,19 @@ async def test_a_durable_reaction_needs_a_state_store(engine: Drasi) -> None:
     with pytest.raises(ConfigError) as caught:
         await engine.add_durable_python_reaction("r", ["q"], lambda _: None)  # pyright: ignore[reportArgumentType]  # invalid on purpose
     assert caught.value.code == "DURABLE_REQUIRES_STATE_STORE"
+
+
+async def test_a_durable_reaction_needs_a_persistent_index(tmp_path: Path) -> None:
+    """An in-memory query cannot back a checkpoint that has to survive a restart."""
+    drasi = await Drasi.create(
+        "durable-volatile", state_store={"kind": "redb", "path": str(tmp_path / "state.redb")}
+    )
+    try:
+        with pytest.raises(ConfigError) as caught:
+            await drasi.add_durable_python_reaction("r", ["q"], lambda _: None)  # pyright: ignore[reportArgumentType]  # invalid on purpose
+        assert caught.value.code == "DURABLE_REQUIRES_INDEX_STORE"
+    finally:
+        await drasi.close()
 
 
 async def test_a_durable_reaction_awaits_its_callback(tmp_path: Path) -> None:
@@ -264,13 +285,16 @@ async def test_from_config_accepts_the_same_store_options(tmp_path: Path) -> Non
         }
     )
     try:
-        # A durable reaction proves the state store was actually applied.
+        # Getting past the state-store check proves it was applied. A persistent
+        # index is a separate requirement, and this config does not set one.
         async def handler(_: QueryResultEvent) -> None:
             return None
 
         await drasi.add_python_source("s")
         await drasi.add_query("q", ORDERS_QUERY, ["s"])
-        await drasi.add_durable_python_reaction("r", ["q"], handler)
+        with pytest.raises(ConfigError) as caught:
+            await drasi.add_durable_python_reaction("r", ["q"], handler)
+        assert caught.value.code == "DURABLE_REQUIRES_INDEX_STORE"
     finally:
         await drasi.close()
 
