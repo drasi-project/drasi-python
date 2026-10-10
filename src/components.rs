@@ -20,14 +20,17 @@
 
 use std::any::Any;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Result;
 use async_trait::async_trait;
 use drasi_core::models::SourceChange;
-use drasi_lib::channels::{QueryResult, SubscriptionResponse};
+use drasi_lib::channels::{QueryResult, SourceEvent, SourceEventWrapper, SubscriptionResponse};
 use drasi_lib::config::SourceSubscriptionSettings;
 use drasi_lib::context::{ReactionRuntimeContext, SourceRuntimeContext};
+use drasi_lib::wal::{WalProvider, WriteAheadLogConfig};
 use drasi_lib::{
     BootstrapProvider, ComponentStatus, Reaction, ReactionBase, ReactionBaseParams,
     ReactionRecoveryPolicy, Source, SourceBase, SourceBaseParams,
@@ -35,7 +38,7 @@ use drasi_lib::{
 use pyo3::prelude::*;
 use pyo3_async_runtimes::TaskLocals;
 use serde_json::Value;
-use tokio::sync::Mutex as TokioMutex;
+use tokio::sync::{Mutex as TokioMutex, RwLock as TokioRwLock};
 
 use crate::conversions::json_to_py;
 use crate::streams::{StreamItem, StreamSender};
@@ -46,32 +49,81 @@ const PYTHON_COMPONENT_TYPE: &str = "python";
 /// A source that emits the changes pushed into it from Python.
 pub struct PythonSource {
     base: SourceBase,
-    /// Serialises dispatch so concurrent pushes cannot be reordered.
-    ///
-    /// `dispatch_source_change` assigns a monotonic sequence with `fetch_add`
-    /// and only then awaits its way to the subscribers, so two overlapping
-    /// pushes can be delivered in the opposite order to the sequences they
-    /// took. The query side treats sequence order as delivery order -
-    /// `SequenceDedup::should_skip` drops anything at or below the highest
-    /// sequence already seen - so the lower one is silently discarded.
-    /// `asyncio.gather` over `push_change` hit this for real, losing roughly
-    /// one change in twenty at a few percent of runs.
+    durability: bool,
+    wal: TokioRwLock<Option<Arc<dyn WalProvider>>>,
+    prune_task: TokioRwLock<Option<tokio::task::JoinHandle<()>>>,
+    running: AtomicBool,
+    /// Serialises persistence and dispatch so concurrent pushes cannot reorder.
     dispatch: TokioMutex<()>,
 }
 
 impl PythonSource {
-    pub fn new(id: &str, auto_start: bool) -> Result<Self> {
+    pub fn new(id: &str, auto_start: bool, durability: bool) -> Result<Self> {
         let params = SourceBaseParams::new(id).with_auto_start(auto_start);
         Ok(Self {
             base: SourceBase::new(params)?,
+            durability,
+            wal: TokioRwLock::new(None),
+            prune_task: TokioRwLock::new(None),
+            running: AtomicBool::new(false),
             dispatch: TokioMutex::new(()),
         })
+    }
+
+    async fn start_pruner(&self, wal: Arc<dyn WalProvider>) {
+        let base = self.base.clone_shared();
+        let source_id = self.base.get_id().to_string();
+        let handle = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(30));
+            loop {
+                interval.tick().await;
+                let Some(confirmed) = base.compute_confirmed_position().await else {
+                    continue;
+                };
+                if confirmed == 0 {
+                    continue;
+                }
+                if let Err(err) = wal.prune_up_to(&source_id, confirmed).await {
+                    log::warn!(
+                        "failed to prune WAL for Python source '{source_id}' through \
+                         sequence {confirmed}: {err}"
+                    );
+                }
+            }
+        });
+        if let Some(previous) = self.prune_task.write().await.replace(handle) {
+            previous.abort();
+        }
     }
 
     /// Emits a change to every subscribed query.
     pub async fn push(&self, change: SourceChange) -> Result<()> {
         let _ordered = self.dispatch.lock().await;
-        self.base.dispatch_source_change(change).await
+        if !self.running.load(Ordering::Acquire) {
+            anyhow::bail!(
+                "Python source '{}' must be running before push_change",
+                self.base.get_id()
+            );
+        }
+        if !self.durability {
+            return self.base.dispatch_source_change(change).await;
+        }
+
+        let wal = self
+            .wal
+            .read()
+            .await
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("durable Python source WAL is not initialized"))?;
+        let sequence = wal.append(self.base.get_id(), &change).await?;
+        let event = SourceEventWrapper::new(
+            self.base.get_id().to_string(),
+            SourceEvent::Change(change),
+            chrono::Utc::now(),
+            sequence,
+        )
+        .with_source_position(sequence.to_be_bytes().to_vec().into());
+        self.base.dispatch_event(event).await
     }
 }
 
@@ -93,15 +145,41 @@ impl Source for PythonSource {
         self.base.get_auto_start()
     }
 
+    fn supports_replay(&self) -> bool {
+        self.durability
+    }
+
     async fn start(&self) -> Result<()> {
-        // There is nothing to spawn: changes arrive from the application rather
-        // than from a connection this source owns.
+        let _ordered = self.dispatch.lock().await;
+        if self.durability {
+            let context = self
+                .base
+                .context()
+                .await
+                .ok_or_else(|| anyhow::anyhow!("Python source context is not initialized"))?;
+            let wal = context.wal_provider.clone().ok_or_else(|| {
+                anyhow::anyhow!("Durability enabled but no WAL provider configured on DrasiLib")
+            })?;
+            wal.register(self.base.get_id(), WriteAheadLogConfig::default())
+                .await?;
+            let head = wal.head_sequence(self.base.get_id()).await?;
+            self.base.set_next_sequence(head);
+            *self.wal.write().await = Some(Arc::clone(&wal));
+            self.start_pruner(wal).await;
+        }
+        self.running.store(true, Ordering::Release);
         self.base.set_status(ComponentStatus::Running, None).await;
         Ok(())
     }
 
     async fn stop(&self) -> Result<()> {
-        self.base.stop_common().await
+        let _ordered = self.dispatch.lock().await;
+        self.running.store(false, Ordering::Release);
+        if let Some(handle) = self.prune_task.write().await.take() {
+            handle.abort();
+        }
+        self.base.set_status(ComponentStatus::Stopped, None).await;
+        Ok(())
     }
 
     async fn status(&self) -> ComponentStatus {
@@ -112,6 +190,38 @@ impl Source for PythonSource {
         &self,
         settings: SourceSubscriptionSettings,
     ) -> Result<SubscriptionResponse> {
+        if self.durability {
+            let wal =
+                self.wal.read().await.clone().ok_or_else(|| {
+                    anyhow::anyhow!("durable Python source WAL is not initialized")
+                })?;
+            let resume_sequence = if let Some(resume_from) = settings.resume_from.as_ref() {
+                if resume_from.len() < 8 {
+                    anyhow::bail!(
+                        "invalid Python source resume position: expected at least 8 bytes, got {}",
+                        resume_from.len()
+                    );
+                }
+                Some(u64::from_be_bytes(
+                    resume_from[..8]
+                        .try_into()
+                        .expect("resume position length checked"),
+                ))
+            } else {
+                settings.resume_sequence
+            };
+            let replay_sequence = match resume_sequence {
+                Some(sequence) => Some(sequence),
+                None if settings.enable_bootstrap && !self.base.has_bootstrap_provider() => Some(0),
+                None => None,
+            };
+            if let Some(sequence) = replay_sequence {
+                return self
+                    .base
+                    .subscribe_with_replay(&settings, wal.as_ref(), sequence, PYTHON_COMPONENT_TYPE)
+                    .await;
+            }
+        }
         self.base
             .subscribe_with_bootstrap(&settings, PYTHON_COMPONENT_TYPE)
             .await
@@ -121,8 +231,30 @@ impl Source for PythonSource {
         self
     }
 
+    async fn deprovision(&self) -> Result<()> {
+        if let Some(wal) = self.wal.read().await.clone() {
+            wal.delete_wal(self.base.get_id()).await?;
+        }
+        Ok(())
+    }
+
     async fn initialize(&self, context: SourceRuntimeContext) {
         self.base.initialize(context).await;
+    }
+
+    async fn set_bootstrap_provider(&self, provider: Box<dyn BootstrapProvider + 'static>) {
+        self.base.set_bootstrap_provider(provider).await;
+    }
+
+    async fn remove_position_handle(&self, query_id: &str) {
+        self.base.remove_position_handle(query_id).await;
+    }
+
+    async fn set_identity_provider(
+        &self,
+        provider: Arc<dyn drasi_lib::identity::IdentityProvider>,
+    ) {
+        self.base.set_identity_provider(provider).await;
     }
 }
 
@@ -147,8 +279,20 @@ impl Source for SharedSource {
         self.0.properties()
     }
 
+    fn dispatch_mode(&self) -> drasi_lib::DispatchMode {
+        self.0.dispatch_mode()
+    }
+
     fn auto_start(&self) -> bool {
         self.0.auto_start()
+    }
+
+    fn supports_replay(&self) -> bool {
+        self.0.supports_replay()
+    }
+
+    fn describe_schema(&self) -> Option<drasi_lib::schema::SourceSchema> {
+        self.0.describe_schema()
     }
 
     async fn start(&self) -> Result<()> {
@@ -174,8 +318,31 @@ impl Source for SharedSource {
         self
     }
 
+    async fn deprovision(&self) -> Result<()> {
+        self.0.deprovision().await
+    }
+
     async fn initialize(&self, context: SourceRuntimeContext) {
         self.0.initialize(context).await;
+    }
+
+    async fn set_bootstrap_provider(&self, provider: Box<dyn BootstrapProvider + 'static>) {
+        self.0.set_bootstrap_provider(provider).await;
+    }
+
+    async fn remove_position_handle(&self, query_id: &str) {
+        self.0.remove_position_handle(query_id).await;
+    }
+
+    async fn on_subscriptions_complete(&self) {
+        self.0.on_subscriptions_complete().await;
+    }
+
+    async fn set_identity_provider(
+        &self,
+        provider: Arc<dyn drasi_lib::identity::IdentityProvider>,
+    ) {
+        self.0.set_identity_provider(provider).await;
     }
 }
 
@@ -593,5 +760,63 @@ impl Reaction for PythonReaction {
 
     async fn enqueue_query_result(&self, result: QueryResult) -> Result<()> {
         self.base.enqueue_query_result(result).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use drasi_core::models::{
+        Element, ElementMetadata, ElementPropertyMap, ElementReference, SourceChange,
+    };
+    use drasi_lib::channels::SourceEvent;
+    use drasi_lib::config::SourceSubscriptionSettings;
+    use drasi_lib::Source;
+
+    use super::PythonSource;
+
+    fn change() -> SourceChange {
+        SourceChange::Insert {
+            element: Element::Node {
+                metadata: ElementMetadata {
+                    reference: ElementReference::new("orders", "o1"),
+                    labels: Arc::from(vec![Arc::from("Order")]),
+                    effective_from: 1,
+                },
+                properties: ElementPropertyMap::new(),
+            },
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn push_dispatches_before_returning() {
+        let source = PythonSource::new("orders", true, false).expect("source");
+        source.start().await.expect("start source");
+        let mut subscription = source
+            .subscribe(SourceSubscriptionSettings {
+                source_id: "orders".to_string(),
+                enable_bootstrap: false,
+                query_id: "q".to_string(),
+                nodes: HashSet::new(),
+                relations: HashSet::new(),
+                resume_from: None,
+                resume_sequence: None,
+                request_position_handle: false,
+            })
+            .await
+            .expect("subscribe");
+
+        let expected = change();
+        source.push(expected.clone()).await.expect("push");
+        source.stop().await.expect("stop source");
+
+        let event = tokio::time::timeout(Duration::from_millis(50), subscription.receiver.recv())
+            .await
+            .expect("push returned before dispatch")
+            .expect("receive");
+        assert_eq!(event.event, SourceEvent::Change(expected));
     }
 }

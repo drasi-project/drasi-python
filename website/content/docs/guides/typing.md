@@ -45,7 +45,7 @@ Some of the more useful ones:
 | `ComponentEvent` | A lifecycle event |
 | `LogMessage` | A log line from a component |
 | `HostInfo` | Versions and target of this build |
-| `StateStore` / `IndexStore` / `Identity` | Engine creation options |
+| `StateStore` / `IndexStore` / `WalProvider` / `Identity` | Engine creation options |
 | `InstalledPlugin` / `ResolvedPlugin` / `LockedPlugin` | Plugin metadata |
 
 ## Literal types catch typos

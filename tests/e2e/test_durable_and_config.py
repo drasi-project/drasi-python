@@ -58,9 +58,10 @@ async def durable_engine(tmp_path: Path, name: str = "durable") -> Drasi:
         name,
         state_store={"kind": "redb", "path": str(tmp_path / "state.redb")},
         index_store={"kind": "rocksdb", "path": str(tmp_path / "index")},
+        wal_provider={"path": str(tmp_path / "wal")},
     )
     await engine.start()
-    await engine.add_python_source("orders")
+    await engine.add_python_source("orders", durability=True)
     await engine.add_query("q", ORDERS_QUERY, ["orders"])
     await wait_for_query_running(engine, "q")
     return engine

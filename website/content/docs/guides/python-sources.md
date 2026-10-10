@@ -13,6 +13,22 @@ your application changes something worth querying.
 await drasi.add_python_source("orders")
 ```
 
+By default, a Python source is volatile: changes that arrived before a process
+restart cannot be replayed. To make it durable, configure an engine-wide WAL
+directory and opt the source in:
+
+```python
+drasi = await Drasi.create(
+    "app",
+    wal_provider={"path": "/var/lib/myapp/drasi/wal"},
+)
+await drasi.start()
+await drasi.add_python_source("orders", durability=True)
+```
+
+`kind` is optional and defaults to `redb`. The path is a directory; Drasi creates
+one redb file per durable source in it. Volatile sources do not create WAL files.
+
 ## Pushing a node
 
 ```python

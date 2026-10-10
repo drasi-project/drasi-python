@@ -14,9 +14,10 @@
 
 //! Optional backing stores and credentials supplied when creating an engine.
 //!
-//! All four are optional. Without them the engine keeps secrets, plugin state
-//! and query indexes in memory, which is fine for tests and short-lived
-//! processes but loses everything on restart.
+//! All five are optional. Without them the engine keeps secrets, plugin state
+//! and query indexes in memory and has no write-ahead log for transient
+//! sources, which is fine for tests and short-lived processes but loses
+//! everything on restart.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -37,6 +38,7 @@ pub struct CreateOptions {
     pub secrets: HashMap<String, String>,
     pub state_store: Option<StateStore>,
     pub index_store: Option<IndexStore>,
+    pub wal_provider: Option<WalProvider>,
     pub identity: Option<Identity>,
 }
 
@@ -49,6 +51,10 @@ pub struct IndexStore {
     /// Only read when a backend is compiled in.
     #[cfg_attr(not(feature = "rocksdb"), allow(dead_code))]
     pub config: Value,
+}
+
+pub struct WalProvider {
+    pub path: String,
 }
 
 pub enum Identity {
@@ -87,12 +93,14 @@ impl CreateOptions {
         secrets: Option<HashMap<String, String>>,
         state_store: Option<&Bound<'_, PyAny>>,
         index_store: Option<&Bound<'_, PyAny>>,
+        wal_provider: Option<&Bound<'_, PyAny>>,
         identity: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
         Ok(Self {
             secrets: secrets.unwrap_or_default(),
             state_store: state_store.map(parse_state_store).transpose()?,
             index_store: index_store.map(parse_index_store).transpose()?,
+            wal_provider: wal_provider.map(parse_wal_provider).transpose()?,
             identity: identity.map(parse_identity).transpose()?,
         })
     }
@@ -158,6 +166,12 @@ impl CreateOptions {
 
         if let Some(index_store) = self.index_store {
             builder = apply_index_store(builder, index_store).await?;
+        }
+
+        if let Some(wal_provider) = self.wal_provider {
+            builder = builder.with_wal_provider(Arc::new(drasi_wal_redb::RedbWalProvider::new(
+                wal_provider.path,
+            )));
         }
 
         if let Some(identity) = self.identity {
@@ -293,6 +307,40 @@ fn parse_index_store(value: &Bound<'_, PyAny>) -> PyResult<IndexStore> {
         rename(fields, "direct_io", "directIo");
     }
     Ok(IndexStore { config })
+}
+
+fn parse_wal_provider(value: &Bound<'_, PyAny>) -> PyResult<WalProvider> {
+    let options = value.cast::<PyDict>().map_err(|_| {
+        error(
+            DrasiErrorCode::ConfigInvalid,
+            "'wal_provider' must be a mapping",
+        )
+    })?;
+
+    let kind = match options.get_item("kind")? {
+        None => "redb".to_string(),
+        Some(value) => value.extract().map_err(|_| {
+            error(
+                DrasiErrorCode::UnknownWalProviderKind,
+                "'wal_provider.kind' must be a string",
+            )
+        })?,
+    };
+    if kind != "redb" {
+        return Err(error(
+            DrasiErrorCode::UnknownWalProviderKind,
+            format!("unknown WAL provider kind '{kind}', expected 'redb'"),
+        ));
+    }
+
+    Ok(WalProvider {
+        path: required(
+            options,
+            "path",
+            DrasiErrorCode::WalProviderPathRequired,
+            "a redb WAL provider requires a 'path'",
+        )?,
+    })
 }
 
 /// Accepts the snake_case spelling for a backend key that is camelCase.

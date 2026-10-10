@@ -72,6 +72,33 @@ async def test_index_store_requires_a_known_kind(tmp_path: Path) -> None:
     assert caught.value.code == "UNKNOWN_INDEX_STORE_KIND"
 
 
+async def test_wal_provider_requires_a_path() -> None:
+    with pytest.raises(ConfigError) as caught:
+        await Drasi.create("t", wal_provider={"kind": "redb"})  # pyright: ignore[reportArgumentType]  # invalid on purpose
+    assert caught.value.code == "WAL_PROVIDER_PATH_REQUIRED"
+
+
+async def test_wal_provider_path_must_be_a_string() -> None:
+    with pytest.raises(ConfigError) as caught:
+        await Drasi.create("t", wal_provider={"path": 1})  # pyright: ignore[reportArgumentType]  # invalid on purpose
+    assert caught.value.code == "WAL_PROVIDER_PATH_REQUIRED"
+
+
+async def test_wal_provider_requires_a_known_kind(tmp_path: Path) -> None:
+    with pytest.raises(UnknownKindError) as caught:
+        await Drasi.create("t", wal_provider={"kind": "sqlite", "path": str(tmp_path)})  # pyright: ignore[reportArgumentType]  # invalid on purpose
+    assert caught.value.code == "UNKNOWN_WAL_PROVIDER_KIND"
+
+
+@pytest.mark.parametrize("kind", [None, 1])
+async def test_wal_provider_rejects_an_explicit_non_string_kind(
+    tmp_path: Path, kind: object
+) -> None:
+    with pytest.raises(UnknownKindError) as caught:
+        await Drasi.create("t", wal_provider={"kind": kind, "path": str(tmp_path)})  # pyright: ignore[reportArgumentType]  # invalid on purpose
+    assert caught.value.code == "UNKNOWN_WAL_PROVIDER_KIND"
+
+
 async def test_identity_requires_a_kind() -> None:
     with pytest.raises(ConfigError) as caught:
         await Drasi.create("t", identity={"username": "u", "password": "p"})
@@ -131,10 +158,12 @@ async def test_a_redb_state_store_is_accepted_and_written(tmp_path: Path) -> Non
 async def test_a_rocksdb_index_store_backs_query_state(tmp_path: Path) -> None:
     path = tmp_path / "index"
     async with await Drasi.create(
-        "t-rocksdb", index_store={"kind": "rocksdb", "path": str(path)}
+        "t-rocksdb",
+        index_store={"kind": "rocksdb", "path": str(path)},
+        wal_provider={"path": str(tmp_path / "wal")},
     ) as drasi:
         await drasi.start()
-        await drasi.add_python_source("s")
+        await drasi.add_python_source("s", durability=True)
         await drasi.add_query("q", ORDERS_QUERY, ["s"])
         await wait_for_query_running(drasi, "q")
         await drasi.push_change(
@@ -143,6 +172,18 @@ async def test_a_rocksdb_index_store_backs_query_state(tmp_path: Path) -> None:
         assert await wait_for_rows(drasi, "q") == [{"id": "o1"}]
 
     assert path.is_dir() and any(path.iterdir()), "the index should be on disk"
+
+
+@pytest.mark.skipif(not rocksdb_available(), reason="built without the rocksdb feature")
+async def test_a_persistent_index_rejects_a_volatile_python_source(tmp_path: Path) -> None:
+    async with await Drasi.create(
+        "t-volatile-source",
+        index_store={"kind": "rocksdb", "path": str(tmp_path / "index")},
+    ) as drasi:
+        await drasi.start()
+        await drasi.add_python_source("s")
+        with pytest.raises(DrasiError, match="do not support replay"):
+            await drasi.add_query("q", ORDERS_QUERY, ["s"])
 
 
 @pytest.mark.skipif(rocksdb_available(), reason="built with the rocksdb feature")

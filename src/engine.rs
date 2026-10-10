@@ -293,24 +293,28 @@ impl Drasi {
     ///
     /// The optional stores are all in-memory unless configured: `secrets` seeds
     /// the store plugins resolve `ConfigValue::Secret` against, `state_store`
-    /// persists plugin state, `index_store` persists query indexes, and
-    /// `identity` supplies credentials to plugins that ask for them.
+    /// persists plugin state, `index_store` persists query indexes,
+    /// `wal_provider` persists durable transient-source changes, and `identity`
+    /// supplies credentials to plugins that ask for them.
     #[staticmethod]
     #[pyo3(signature = (
-        id, *, secrets = None, state_store = None, index_store = None, identity = None,
-        plugins_dir = None,
+        id, *, secrets = None, state_store = None, index_store = None, wal_provider = None,
+        identity = None, plugins_dir = None,
     ))]
+    #[allow(clippy::too_many_arguments)]
     fn create<'py>(
         py: Python<'py>,
         id: String,
         secrets: Option<HashMap<String, String>>,
         state_store: Option<&Bound<'py, PyAny>>,
         index_store: Option<&Bound<'py, PyAny>>,
+        wal_provider: Option<&Bound<'py, PyAny>>,
         identity: Option<&Bound<'py, PyAny>>,
         plugins_dir: Option<PathBuf>,
     ) -> PyResult<Bound<'py, PyAny>> {
         // Parse eagerly so a malformed option raises before the caller awaits.
-        let options = CreateOptions::parse(secrets, state_store, index_store, identity)?;
+        let options =
+            CreateOptions::parse(secrets, state_store, index_store, wal_provider, identity)?;
         let durable_capable = options.has_state_store();
         let persistent_indexes = options.has_index_store();
         let wanted_identity = options.identity_plugin();
@@ -425,6 +429,10 @@ impl Drasi {
                 .as_ref(),
             config
                 .get_item("index_store")?
+                .filter(|v| !v.is_none())
+                .as_ref(),
+            config
+                .get_item("wal_provider")?
                 .filter(|v| !v.is_none())
                 .as_ref(),
             config
@@ -2123,17 +2131,19 @@ impl Drasi {
     // ------------------------------------------------- Python-defined sources
 
     /// Registers a source that you push changes into with `push_change`.
-    #[pyo3(signature = (id, *, auto_start = true))]
+    #[pyo3(signature = (id, *, auto_start = true, durability = false))]
     fn add_python_source<'py>(
         &self,
         py: Python<'py>,
         id: String,
         auto_start: bool,
+        durability: bool,
     ) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner();
         inner.ensure_open()?;
         future_into_py(py, async move {
-            let source = Arc::new(PythonSource::new(&id, auto_start).map_err(engine_error)?);
+            let source =
+                Arc::new(PythonSource::new(&id, auto_start, durability).map_err(engine_error)?);
             inner
                 .core
                 .add_source(SharedSource(Arc::clone(&source)))
