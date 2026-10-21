@@ -21,6 +21,7 @@ These run outside an event loop, so they are plain `def` tests rather than
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
 
 import pytest
 
@@ -126,6 +127,25 @@ def test_from_config_builds_a_started_engine() -> None:
     with SyncDrasi.from_config({"id": "sync-declared"}) as engine:
         assert engine.id == "sync-declared"
         assert engine.is_running() is True
+
+
+def test_wal_provider_and_durable_python_source_match_async_api(tmp_path: Path) -> None:
+    wal_path = tmp_path / "wal"
+    with SyncDrasi.create("sync-wal", wal_provider={"path": str(wal_path)}) as engine:
+        engine.start()
+        engine.add_python_source("orders", durability=True)
+        engine.add_query("open", OPEN_ORDERS, ["orders"])
+        engine.wait_for_query("open")
+        engine.push_change("orders", order("o1"))
+
+        rows = engine.get_query_results("open")
+        while rows != [{"id": "o1"}]:
+            rows = engine.get_query_results("open")
+
+        assert rows == [{"id": "o1"}]
+
+    assert wal_path.is_dir()
+    assert (wal_path / "orders.redb").is_file()
 
 
 def test_repr_identifies_the_engine() -> None:

@@ -71,6 +71,7 @@ from .types import (
     SourceSchema,
     SourceSubscription,
     StateStore,
+    WalProvider,
 )
 
 StrPath = str | PathLike[str]
@@ -168,6 +169,7 @@ class Drasi:
         secrets: Mapping[str, str] | None = None,
         state_store: StateStore | None = None,
         index_store: IndexStore | None = None,
+        wal_provider: WalProvider | None = None,
         identity: Identity | None = None,
         plugins_dir: StrPath | None = None,
     ) -> Drasi:
@@ -178,6 +180,7 @@ class Drasi:
                     secrets=secrets,
                     state_store=state_store,
                     index_store=index_store,
+                    wal_provider=wal_provider,
                     identity=identity,
                     plugins_dir=plugins_dir,
                 )
@@ -291,8 +294,12 @@ class Drasi:
 
     # ------------------------------------------- components defined in Python
 
-    def add_python_source(self, id: str, *, auto_start: bool = True) -> None:
-        _Loop.run(lambda: self._inner.add_python_source(id, auto_start=auto_start))
+    def add_python_source(
+        self, id: str, *, auto_start: bool = True, durability: bool = False
+    ) -> None:
+        _Loop.run(
+            lambda: self._inner.add_python_source(id, auto_start=auto_start, durability=durability)
+        )
 
     def push_change(self, source_id: str, change: SourceChange) -> None:
         _Loop.run(lambda: self._inner.push_change(source_id, change))

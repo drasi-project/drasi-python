@@ -62,8 +62,14 @@ same name on `drasi.sync.Drasi`, where the `Awaitable[...]` return becomes the v
 itself and a `Stream` becomes an ordinary iterator — see [the blocking
 API](../guides/blocking-api/).
 
-The shapes referenced here (`SourceChange`, `QueryResultEvent`, `StateStore` and the
-rest) are declared in `drasi.types`, described in the [typing guide](../guides/typing/).
+The shapes referenced here (`SourceChange`, `QueryResultEvent`, `StateStore`,
+`WalProvider` and the rest) are declared in `drasi.types`, described in the
+[typing guide](../guides/typing/).
+
+`wal_provider={"path": ...}` configures a directory. The redb provider creates one
+WAL file per durable transient source inside it. This is Drasi's local
+transient-source write-ahead log; it is not a PostgreSQL replication slot and does
+not create, manage or resume one.
 
 {{% alert title="Generated from the shipped stubs" color="info" %}}
 The tables below are generated from `python/drasi/_drasi.pyi`, the same file your type
@@ -103,9 +109,10 @@ def _signature(source: str, node: ast.FunctionDef | ast.AsyncFunctionDef) -> tup
     returns = returns.replace(": ...", "").strip()
     head = re.sub(r"\s+", " ", head).strip().removesuffix("->").strip()
     head = head.removeprefix("def ")
-    head = head.replace("(self, ", "(").replace("(self)", "()").replace("(self", "(")
+    head = re.sub(r"\(\s*self\s*(?:,\s*)?", "(", head, count=1)
     head = head.removesuffix(":").rstrip()
     head = head.replace("( ", "(").replace(", )", ")")
+    head = re.sub(r"\s+\)", ")", head)
     if head.endswith(",)"):
         head = head[:-2] + ")"
     return head, returns

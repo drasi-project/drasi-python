@@ -25,7 +25,7 @@ one genuine advantage — streaming as async iterators — has been carried over
 | Components | **loaded at runtime** from `ghcr.io/drasi-project` | **linked at compile time**, one PyPI package each |
 | PyPI packages | 1 | 23 + workspace root |
 | Engine methods (at audit) | 37 | 27 |
-| Errors | 8 classes, 26 codes | 1 class, no codes |
+| Errors | 8 classes, 30 codes | 1 class, no codes |
 | Streaming | none | async iterators |
 | Python | ≥3.10 (abi3) | ≥3.11 |
 
@@ -185,6 +185,7 @@ At audit: 30 of 48 methods (62%). **Now 48 of 48 (100%).**
 | Secret store | `secrets`, and the resolver plugins call back through | ✅ |
 | State store | redb | ✅ |
 | Index store | RocksDB, behind a Cargo feature | ✅ |
+| WAL provider | redb, for durable transient Python sources | ✅ |
 | Identity | password and token | ✅ |
 
 **21 methods exist here that Node does not have**: the eight streaming
@@ -198,17 +199,17 @@ iterators (`query_results`, `query_events`, `source_events`,
 
 ## 4. Gap analysis vs the `drasi-lib` engine
 
-Comparing against `drasi-lib` 0.8.9 `src/lib_core_ops/`, the engine also offers,
-unexposed by *either* prototype:
+Comparing against `drasi-lib` 0.8.9 `src/lib_core_ops/`, the engine also offers
+the following surface. The WAL-provider row is now closed:
 
-| Engine capability | Notes |
-| --- | --- |
-| `get_query_config` / `get_query_info` | inspect a running query |
-| `get_source_info` / `get_reaction_info` | |
-| `snapshot_configuration` / `get_current_config` | round-trip config to disk |
-| `subscribe_all_component_events` | |
-| Query tuning: `with_middleware`, `with_recovery_policy`, `with_storage_backend`, `with_outbox_capacity`, `dispatch_mode` | `Query` builder options; only `joins` and `language` are exposed today |
-| WAL providers | |
+| Engine capability | Notes | Status |
+| --- | --- | --- |
+| `get_query_config` / `get_query_info` | inspect a running query | |
+| `get_source_info` / `get_reaction_info` | | |
+| `snapshot_configuration` / `get_current_config` | round-trip config to disk | |
+| `subscribe_all_component_events` | | |
+| Query tuning: `with_middleware`, `with_recovery_policy`, `with_storage_backend`, `with_outbox_capacity`, `dispatch_mode` | `Query` builder options; only `joins` and `language` are exposed today | |
+| WAL providers | redb provider plus per-Python-source durability opt-in | ✅ |
 
 These are lower priority than the Node parity gaps — they are engine surface
 neither binding has needed yet — but `snapshot_configuration` pairs naturally

@@ -7,6 +7,20 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Added
+
+- `Drasi.create` and `Drasi.from_config` accept
+  `wal_provider={"path": ...}`. The built-in redb provider stores one WAL file
+  per durable transient source in that directory; `kind` defaults to `redb`.
+- `add_python_source(..., durability=True)` persists changes before acknowledging
+  them and replays them after a fresh-process restart. The async and blocking
+  APIs expose the same option.
+
+### Changed
+
+- Volatile Python sources now report that they cannot replay changes. Persistent
+  queries must use a durable Python source with a configured WAL provider.
+
 ## [0.3.0] - 2026-10-01
 
 Built against drasi-lib 0.9. This is a minor release because two behaviour

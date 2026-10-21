@@ -13,8 +13,14 @@ same name on `drasi.sync.Drasi`, where the `Awaitable[...]` return becomes the v
 itself and a `Stream` becomes an ordinary iterator — see [the blocking
 API](../guides/blocking-api/).
 
-The shapes referenced here (`SourceChange`, `QueryResultEvent`, `StateStore` and the
-rest) are declared in `drasi.types`, described in the [typing guide](../guides/typing/).
+The shapes referenced here (`SourceChange`, `QueryResultEvent`, `StateStore`,
+`WalProvider` and the rest) are declared in `drasi.types`, described in the
+[typing guide](../guides/typing/).
+
+`wal_provider={"path": ...}` configures a directory. The redb provider creates one
+WAL file per durable transient source inside it. This is Drasi's local
+transient-source write-ahead log; it is not a PostgreSQL replication slot and does
+not create, manage or resume one.
 
 {{% alert title="Generated from the shipped stubs" color="info" %}}
 The tables below are generated from `python/drasi/_drasi.pyi`, the same file your type
@@ -29,7 +35,7 @@ from what the package exposes.
 | --- | --- |
 | `id` _(property)_ | `str` |
 | `from_config(config: Mapping[str, Any])` _(static)_ | `Awaitable[Drasi]` |
-| `create(id: str, *, secrets: Mapping[str, str] \| None = None, state_store: StateStore \| None = None, index_store: IndexStore \| None = None, identity: Identity \| None = None, plugins_dir: StrPath \| None = None)` _(static)_ | `Awaitable[Drasi]` |
+| `create(id: str, *, secrets: Mapping[str, str] \| None = None, state_store: StateStore \| None = None, index_store: IndexStore \| None = None, wal_provider: WalProvider \| None = None, identity: Identity \| None = None, plugins_dir: StrPath \| None = None)` _(static)_ | `Awaitable[Drasi]` |
 
 ### Lifecycle
 
@@ -44,8 +50,8 @@ from what the package exposes.
 
 | Member | Returns |
 | --- | --- |
-| `add_query(self, id: str, query: str, sources: Sequence[str \| SourceSubscription], *, language: QueryLanguage = "cypher", joins: Sequence[Join] \| None = None, middleware: Sequence[Middleware] \| None = None, auto_start: bool \| None = None, enable_bootstrap: bool \| None = None, bootstrap_timeout_seconds: int \| None = None, priority_queue_capacity: int \| None = None, dispatch_buffer_capacity: int \| None = None, outbox_capacity: int \| None = None, dispatch_mode: Literal["channel", "broadcast"] \| None = None)` | `Awaitable[None]` |
-| `update_query(self, id: str, query: str, sources: Sequence[str \| SourceSubscription], *, language: QueryLanguage = "cypher", joins: Sequence[Join] \| None = None, middleware: Sequence[Middleware] \| None = None, auto_start: bool \| None = None, enable_bootstrap: bool \| None = None, bootstrap_timeout_seconds: int \| None = None, priority_queue_capacity: int \| None = None, dispatch_buffer_capacity: int \| None = None, outbox_capacity: int \| None = None, dispatch_mode: Literal["channel", "broadcast"] \| None = None)` | `Awaitable[None]` |
+| `add_query(id: str, query: str, sources: Sequence[str \| SourceSubscription], *, language: QueryLanguage = "cypher", joins: Sequence[Join] \| None = None, middleware: Sequence[Middleware] \| None = None, auto_start: bool \| None = None, enable_bootstrap: bool \| None = None, bootstrap_timeout_seconds: int \| None = None, priority_queue_capacity: int \| None = None, dispatch_buffer_capacity: int \| None = None, outbox_capacity: int \| None = None, dispatch_mode: Literal["channel", "broadcast"] \| None = None)` | `Awaitable[None]` |
+| `update_query(id: str, query: str, sources: Sequence[str \| SourceSubscription], *, language: QueryLanguage = "cypher", joins: Sequence[Join] \| None = None, middleware: Sequence[Middleware] \| None = None, auto_start: bool \| None = None, enable_bootstrap: bool \| None = None, bootstrap_timeout_seconds: int \| None = None, priority_queue_capacity: int \| None = None, dispatch_buffer_capacity: int \| None = None, outbox_capacity: int \| None = None, dispatch_mode: Literal["channel", "broadcast"] \| None = None)` | `Awaitable[None]` |
 | `remove_query(id: str)` | `Awaitable[None]` |
 | `start_query(id: str)` | `Awaitable[None]` |
 | `stop_query(id: str)` | `Awaitable[None]` |
@@ -58,29 +64,29 @@ from what the package exposes.
 
 | Member | Returns |
 | --- | --- |
-| `add_python_source(id: str, *, auto_start: bool = True)` | `Awaitable[None]` |
+| `add_python_source(id: str, *, auto_start: bool = True, durability: bool = False)` | `Awaitable[None]` |
 | `push_change(source_id: str, change: SourceChange)` | `Awaitable[None]` |
-| `add_python_reaction(self, id: str, query_ids: Sequence[str], callback: Callable[[QueryResultEvent], object])` | `Awaitable[None]` |
-| `add_durable_python_reaction(self, id: str, query_ids: Sequence[str], callback: Callable[[QueryResultEvent], Awaitable[object]], *, recovery_policy: Literal["strict", "auto_reset", "skip_gap"] = "strict")` | `Awaitable[None]` |
+| `add_python_reaction(id: str, query_ids: Sequence[str], callback: Callable[[QueryResultEvent], object])` | `Awaitable[None]` |
+| `add_durable_python_reaction(id: str, query_ids: Sequence[str], callback: Callable[[QueryResultEvent], Awaitable[object]], *, recovery_policy: Literal["strict", "auto_reset", "skip_gap"] = "strict")` | `Awaitable[None]` |
 
 ### Components provided by plugins
 
 | Member | Returns |
 | --- | --- |
-| `add_source(self, kind: str, id: str, config: Mapping[str, Any] \| None = None, *, auto_start: bool = True, bootstrap: Mapping[str, Any] \| None = None)` | `Awaitable[None]` |
+| `add_source(kind: str, id: str, config: Mapping[str, Any] \| None = None, *, auto_start: bool = True, bootstrap: Mapping[str, Any] \| None = None)` | `Awaitable[None]` |
 | `remove_source(id: str, *, cleanup: bool = False)` | `Awaitable[None]` |
 | `start_source(id: str)` | `Awaitable[None]` |
 | `stop_source(id: str)` | `Awaitable[None]` |
 | `get_source_status(id: str)` | `Awaitable[str]` |
 | `list_sources()` | `Awaitable[list[tuple[str, str]]]` |
-| `update_source(self, kind: str, id: str, config: Mapping[str, Any] \| None = None, *, auto_start: bool = True)` | `Awaitable[None]` |
-| `add_reaction(self, kind: str, id: str, query_ids: Sequence[str], config: Mapping[str, Any] \| None = None, *, auto_start: bool = True)` | `Awaitable[None]` |
+| `update_source(kind: str, id: str, config: Mapping[str, Any] \| None = None, *, auto_start: bool = True)` | `Awaitable[None]` |
+| `add_reaction(kind: str, id: str, query_ids: Sequence[str], config: Mapping[str, Any] \| None = None, *, auto_start: bool = True)` | `Awaitable[None]` |
 | `remove_reaction(id: str, *, cleanup: bool = False)` | `Awaitable[None]` |
 | `start_reaction(id: str)` | `Awaitable[None]` |
 | `stop_reaction(id: str)` | `Awaitable[None]` |
 | `get_reaction_status(id: str)` | `Awaitable[str]` |
 | `list_reactions()` | `Awaitable[list[tuple[str, str]]]` |
-| `update_reaction(self, kind: str, id: str, query_ids: Sequence[str], config: Mapping[str, Any] \| None = None, *, auto_start: bool = True)` | `Awaitable[None]` |
+| `update_reaction(kind: str, id: str, query_ids: Sequence[str], config: Mapping[str, Any] \| None = None, *, auto_start: bool = True)` | `Awaitable[None]` |
 
 ### Metrics and schema
 
@@ -96,7 +102,7 @@ from what the package exposes.
 
 | Member | Returns |
 | --- | --- |
-| `query_results(self, query_id: str, *, reaction_id: str \| None = None )` | `Awaitable[Stream]` |
+| `query_results(query_id: str, *, reaction_id: str \| None = None)` | `Awaitable[Stream]` |
 | `query_events(id: str)` | `Awaitable[Stream]` |
 | `source_events(id: str)` | `Awaitable[Stream]` |
 | `reaction_events(id: str)` | `Awaitable[Stream]` |
@@ -104,36 +110,36 @@ from what the package exposes.
 | `query_logs(id: str)` | `Awaitable[Stream]` |
 | `source_logs(id: str)` | `Awaitable[Stream]` |
 | `reaction_logs(id: str)` | `Awaitable[Stream]` |
-| `on_query_results(self, query_id: str, callback: Callable[[QueryResultEvent], object] )` | `Awaitable[None]` |
-| `on_query_events(self, id: str, callback: Callable[[ComponentEvent], object] )` | `Awaitable[None]` |
-| `on_source_events(self, id: str, callback: Callable[[ComponentEvent], object] )` | `Awaitable[None]` |
-| `on_reaction_events(self, id: str, callback: Callable[[ComponentEvent], object] )` | `Awaitable[None]` |
+| `on_query_results(query_id: str, callback: Callable[[QueryResultEvent], object])` | `Awaitable[None]` |
+| `on_query_events(id: str, callback: Callable[[ComponentEvent], object])` | `Awaitable[None]` |
+| `on_source_events(id: str, callback: Callable[[ComponentEvent], object])` | `Awaitable[None]` |
+| `on_reaction_events(id: str, callback: Callable[[ComponentEvent], object])` | `Awaitable[None]` |
 | `on_all_events(callback: Callable[[ComponentEvent], object])` | `Awaitable[None]` |
-| `on_query_logs(self, id: str, callback: Callable[[LogMessage], object] )` | `Awaitable[None]` |
-| `on_source_logs(self, id: str, callback: Callable[[LogMessage], object] )` | `Awaitable[None]` |
-| `on_reaction_logs(self, id: str, callback: Callable[[LogMessage], object] )` | `Awaitable[None]` |
+| `on_query_logs(id: str, callback: Callable[[LogMessage], object])` | `Awaitable[None]` |
+| `on_source_logs(id: str, callback: Callable[[LogMessage], object])` | `Awaitable[None]` |
+| `on_reaction_logs(id: str, callback: Callable[[LogMessage], object])` | `Awaitable[None]` |
 
 ### Plugins
 
 | Member | Returns |
 | --- | --- |
-| `load_plugins(self, directory: StrPath, verify: Mapping[str, str] \| None = None )` | `Awaitable[LoadSummary]` |
+| `load_plugins(directory: StrPath, verify: Mapping[str, str] \| None = None)` | `Awaitable[LoadSummary]` |
 | `plugin_kinds()` | `Awaitable[PluginKinds]` |
 | `host_info()` | `HostInfo` |
 | `search_plugins(query: str \| None = None)` | `Awaitable[list[PluginSearchResult]]` |
 | `list_plugin_tags(repository: str)` | `Awaitable[list[str]]` |
 | `resolve_plugin(reference: str)` | `Awaitable[ResolvedPlugin]` |
-| `install_plugin(self, reference: str, *, directory: StrPath \| None = None, verify: bool = False, require_signed: bool = False, trusted_identities: Sequence[tuple[str, str]] \| None = None, load: bool = True)` | `Awaitable[InstalledPlugin]` |
-| `watch_plugins(self, directory: StrPath, *, debounce_seconds: float = 1.0 )` | `Awaitable[None]` |
-| `pull_plugin(self, reference: str, directory: StrPath, filename: str, *, verify: bool = False, require_signed: bool = False, trusted_identities: Sequence[tuple[str, str]] \| None = None)` | `Awaitable[PulledPlugin]` |
+| `install_plugin(reference: str, *, directory: StrPath \| None = None, verify: bool = False, require_signed: bool = False, trusted_identities: Sequence[tuple[str, str]] \| None = None, load: bool = True)` | `Awaitable[InstalledPlugin]` |
+| `watch_plugins(directory: StrPath, *, debounce_seconds: float = 1.0)` | `Awaitable[None]` |
+| `pull_plugin(reference: str, directory: StrPath, filename: str, *, verify: bool = False, require_signed: bool = False, trusted_identities: Sequence[tuple[str, str]] \| None = None)` | `Awaitable[PulledPlugin]` |
 | `write_lockfile(directory: StrPath)` | `Awaitable[int]` |
 | `read_lockfile(directory: StrPath)` _(static)_ | `list[LockedPlugin]` |
-| `install_from_lockfile(self, directory: str, *, load: bool = True )` | `Awaitable[list[str]]` |
+| `install_from_lockfile(directory: str, *, load: bool = True)` | `Awaitable[list[str]]` |
 | `source_config_schema(kind: str)` | `Awaitable[ConfigSchema]` |
 | `reaction_config_schema(kind: str)` | `Awaitable[ConfigSchema]` |
 | `bootstrap_config_schema(kind: str)` | `Awaitable[ConfigSchema]` |
 | `secret_store_config_schema(kind: str)` | `Awaitable[ConfigSchema]` |
-| `use_secret_store(self, kind: str, config: Mapping[str, Any] \| None = None )` | `Awaitable[None]` |
+| `use_secret_store(kind: str, config: Mapping[str, Any] \| None = None)` | `Awaitable[None]` |
 
 ## Errors
 

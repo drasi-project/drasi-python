@@ -52,6 +52,8 @@ pub enum DrasiErrorCode {
     UnknownStateStoreKind,
     IndexStorePathRequired,
     UnknownIndexStoreKind,
+    WalProviderPathRequired,
+    UnknownWalProviderKind,
     IdentityKindRequired,
     UnknownIdentityKind,
     IdentityConfigInvalid,
@@ -85,6 +87,8 @@ impl DrasiErrorCode {
             Self::UnknownStateStoreKind => "UNKNOWN_STATE_STORE_KIND",
             Self::IndexStorePathRequired => "INDEX_STORE_PATH_REQUIRED",
             Self::UnknownIndexStoreKind => "UNKNOWN_INDEX_STORE_KIND",
+            Self::WalProviderPathRequired => "WAL_PROVIDER_PATH_REQUIRED",
+            Self::UnknownWalProviderKind => "UNKNOWN_WAL_PROVIDER_KIND",
             Self::IdentityKindRequired => "IDENTITY_KIND_REQUIRED",
             Self::UnknownIdentityKind => "UNKNOWN_IDENTITY_KIND",
             Self::IdentityConfigInvalid => "IDENTITY_CONFIG_INVALID",
@@ -120,6 +124,8 @@ impl DrasiErrorCode {
             UnknownStateStoreKind,
             IndexStorePathRequired,
             UnknownIndexStoreKind,
+            WalProviderPathRequired,
+            UnknownWalProviderKind,
             IdentityKindRequired,
             UnknownIdentityKind,
             IdentityConfigInvalid,
@@ -146,6 +152,7 @@ impl DrasiErrorCode {
             | UnknownSecretStoreKind
             | UnknownStateStoreKind
             | UnknownIndexStoreKind
+            | UnknownWalProviderKind
             | UnknownIdentityKind
             | UnknownQueryLanguage
             | UnknownChangeOp => py.get_type::<UnknownKindError>().into(),
@@ -153,6 +160,7 @@ impl DrasiErrorCode {
             BootstrapKindRequired
             | StateStorePathRequired
             | IndexStorePathRequired
+            | WalProviderPathRequired
             | IdentityKindRequired
             | IdentityConfigInvalid
             | DurableRequiresStateStore

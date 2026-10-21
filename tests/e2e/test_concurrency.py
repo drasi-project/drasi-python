@@ -50,8 +50,8 @@ async def take(stream: Stream, count: int, *, timeout: float = 10.0) -> list[dic
     return await asyncio.wait_for(collect(), timeout)
 
 
-async def running_orders_engine(engine: Drasi) -> Drasi:
-    await engine.add_python_source("orders")
+async def running_orders_engine(engine: Drasi, *, durability: bool = False) -> Drasi:
+    await engine.add_python_source("orders", durability=durability)
     await engine.add_query("open", OPEN_ORDERS, ["orders"])
     await engine.start()
     await wait_for_query_running(engine, "open")
@@ -129,9 +129,10 @@ async def test_a_slow_durable_reaction_does_not_block_query_updates(
         "t-slow-reaction",
         state_store={"kind": "redb", "path": str(tmp_path / "state.redb")},
         index_store={"kind": "rocksdb", "path": str(tmp_path / "index")},
+        wal_provider={"path": str(tmp_path / "wal")},
     )
     try:
-        await running_orders_engine(drasi)
+        await running_orders_engine(drasi, durability=True)
         started = asyncio.Event()
         release = asyncio.Event()
         seen: list[str] = []

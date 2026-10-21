@@ -73,6 +73,8 @@ The full set is available at runtime as `drasi.ERROR_CODES`.
 | `UNKNOWN_STATE_STORE_KIND` | The state store kind is not one this build supports |
 | `INDEX_STORE_PATH_REQUIRED` | An index store was configured without a path |
 | `UNKNOWN_INDEX_STORE_KIND` | The index store kind is not compiled into this wheel |
+| `WAL_PROVIDER_PATH_REQUIRED` | A WAL provider was configured without its directory path |
+| `UNKNOWN_WAL_PROVIDER_KIND` | The WAL provider kind is not supported |
 | `IDENTITY_KIND_REQUIRED` | An identity block was given without a `kind` |
 | `UNKNOWN_IDENTITY_KIND` | No identity provider matches that kind |
 | `IDENTITY_CONFIG_INVALID` | The identity block is missing fields its kind needs |

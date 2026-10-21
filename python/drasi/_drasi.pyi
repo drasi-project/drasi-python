@@ -44,6 +44,7 @@ from .types import (
     SourceSchema,
     SourceSubscription,
     StateStore,
+    WalProvider,
 )
 
 # Directory arguments reach Rust as a PathBuf, which accepts anything
@@ -103,6 +104,7 @@ class Drasi:
         secrets: Mapping[str, str] | None = None,
         state_store: StateStore | None = None,
         index_store: IndexStore | None = None,
+        wal_provider: WalProvider | None = None,
         identity: Identity | None = None,
         plugins_dir: StrPath | None = None,
     ) -> Awaitable[Drasi]: ...
@@ -164,7 +166,9 @@ class Drasi:
     def wait_for_query(self, id: str, *, timeout: float = 30.0) -> Awaitable[None]: ...
 
     # components defined in Python
-    def add_python_source(self, id: str, *, auto_start: bool = True) -> Awaitable[None]: ...
+    def add_python_source(
+        self, id: str, *, auto_start: bool = True, durability: bool = False
+    ) -> Awaitable[None]: ...
     def push_change(self, source_id: str, change: SourceChange) -> Awaitable[None]: ...
     def add_python_reaction(
         self,

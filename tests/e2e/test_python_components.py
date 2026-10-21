@@ -19,6 +19,7 @@ These tests need no plugins, no network and no Docker.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -400,6 +401,64 @@ async def test_source_registered_without_auto_start_can_be_started(engine: Drasi
     await engine.start_source("orders")
 
     assert await engine.get_source_status("orders") == "Running"
+
+
+async def test_restarted_source_keeps_existing_query_subscriptions(engine: Drasi) -> None:
+    await engine.add_python_source("orders")
+    await engine.add_query("open", OPEN_ORDERS, ["orders"])
+    await engine.start()
+    await wait_for_query_running(engine, "open")
+
+    await engine.push_change(
+        "orders",
+        {
+            "op": "insert",
+            "id": "o1",
+            "labels": ["Order"],
+            "properties": {"id": "o1", "status": "open", "total": 1},
+        },
+    )
+    await wait_for_rows(engine, "open")
+
+    await engine.stop_source("orders")
+    await engine.start_source("orders")
+    await engine.push_change(
+        "orders",
+        {
+            "op": "insert",
+            "id": "o2",
+            "labels": ["Order"],
+            "properties": {"id": "o2", "status": "open", "total": 2},
+        },
+    )
+
+    rows = await wait_for_rows(engine, "open", count=2)
+    assert sorted(rows, key=lambda row: row["id"]) == [
+        {"id": "o1", "total": 1},
+        {"id": "o2", "total": 2},
+    ]
+
+
+async def test_durable_source_rejects_pushes_before_start(tmp_path: Path) -> None:
+    async with await Drasi.create(
+        "t-durable-not-started",
+        wal_provider={"path": str(tmp_path / "wal")},
+    ) as engine:
+        await engine.start()
+        await engine.add_python_source("orders", auto_start=False, durability=True)
+
+        with pytest.raises(DrasiError, match="must be running") as caught:
+            await engine.push_change(
+                "orders",
+                {
+                    "op": "insert",
+                    "id": "o1",
+                    "labels": ["Order"],
+                    "properties": {"id": "o1"},
+                },
+            )
+
+        assert caught.value.code == "ENGINE_FAILURE"
 
 
 async def test_running_source_with_dependents_is_not_removed(engine: Drasi) -> None:

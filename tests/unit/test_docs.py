@@ -48,6 +48,11 @@ def test_the_api_reference_matches_the_stubs() -> None:
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+def test_bound_method_signatures_do_not_include_self() -> None:
+    page = API_PAGE.read_text(encoding="utf-8")
+    assert re.search(r"`\w+\(self(?:,|\))", page) is None
+
+
 def test_every_documented_error_code_exists() -> None:
     """The error-handling guide tabulates codes; none may be invented or stale."""
     guide = (CONTENT / "docs" / "guides" / "error-handling.md").read_text(encoding="utf-8")

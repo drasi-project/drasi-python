@@ -67,6 +67,7 @@ __all__ = [
     "SourceSchema",
     "SourceSubscription",
     "StateStore",
+    "WalProvider",
 ]
 
 QueryLanguage = Literal["cypher", "gql"]
@@ -101,6 +102,16 @@ class IndexStore(TypedDict, total=False):
     path: str
     enable_archive: bool
     direct_io: bool
+
+
+class _WalProviderRequired(TypedDict):
+    path: str
+
+
+class WalProvider(_WalProviderRequired, total=False):
+    """Directory containing one redb WAL file per durable transient source."""
+
+    kind: Literal["redb"]
 
 
 class Identity(TypedDict, total=False):
@@ -446,6 +457,7 @@ class DrasiConfig(TypedDict, total=False):
     secrets: Mapping[str, str]
     state_store: StateStore
     index_store: IndexStore
+    wal_provider: WalProvider
     identity: Identity
     plugins_dir: str
     sources: Sequence[SourceConfig]

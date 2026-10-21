@@ -68,8 +68,13 @@ drasi = await Drasi.create(
     "app",
     state_store={"kind": "redb", "path": "/var/lib/myapp/drasi/state.redb"},
     index_store={"kind": "rocksdb", "path": "/var/lib/myapp/drasi/index"},
+    wal_provider={"path": "/var/lib/myapp/drasi/wal"},
 )
 ```
+
+If the query reads a Python source, register that source with
+`durability=True`. A persistent query rejects a volatile Python source because
+it cannot replay changes after a restart.
 
 Then register the reaction with a recovery policy:
 

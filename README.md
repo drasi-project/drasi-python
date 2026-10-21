@@ -163,7 +163,11 @@ drasi = await Drasi.create(
     "app",
     state_store={"kind": "redb", "path": "state.redb"},
     index_store={"kind": "rocksdb", "path": "index"},
+    wal_provider={"path": "wal"},
 )
+
+await drasi.start()
+await drasi.add_python_source("orders", durability=True)
 
 
 async def handle(event):
