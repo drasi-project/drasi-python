@@ -66,3 +66,14 @@ def test_durable_python_source_replays_after_a_fresh_process(tmp_path: Path) -> 
         "mode": "reader",
         "rows": [{"id": "o1"}],
     }
+
+
+def test_cleanup_removes_wal_without_starting_source(tmp_path: Path) -> None:
+    wal_path = tmp_path / "wal"
+
+    run_worker("writer", wal_path)
+    wal_file = wal_path / "orders.redb"
+    assert wal_file.is_file()
+
+    assert run_worker("cleanup", wal_path) == {"mode": "cleanup"}
+    assert not wal_file.exists()

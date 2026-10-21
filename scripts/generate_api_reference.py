@@ -109,9 +109,10 @@ def _signature(source: str, node: ast.FunctionDef | ast.AsyncFunctionDef) -> tup
     returns = returns.replace(": ...", "").strip()
     head = re.sub(r"\s+", " ", head).strip().removesuffix("->").strip()
     head = head.removeprefix("def ")
-    head = head.replace("(self, ", "(").replace("(self)", "()").replace("(self", "(")
+    head = re.sub(r"\(\s*self\s*(?:,\s*)?", "(", head, count=1)
     head = head.removesuffix(":").rstrip()
     head = head.replace("( ", "(").replace(", )", ")")
+    head = re.sub(r"\s+\)", ")", head)
     if head.endswith(",)"):
         head = head[:-2] + ")"
     return head, returns

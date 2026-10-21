@@ -232,7 +232,18 @@ impl Source for PythonSource {
     }
 
     async fn deprovision(&self) -> Result<()> {
-        if let Some(wal) = self.wal.read().await.clone() {
+        if !self.durability {
+            return Ok(());
+        }
+        let wal = match self.wal.read().await.clone() {
+            Some(wal) => Some(wal),
+            None => self
+                .base
+                .context()
+                .await
+                .and_then(|context| context.wal_provider),
+        };
+        if let Some(wal) = wal {
             wal.delete_wal(self.base.get_id()).await?;
         }
         Ok(())

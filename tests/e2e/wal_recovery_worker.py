@@ -71,9 +71,19 @@ async def reader(wal_path: Path) -> dict[str, object]:
         await drasi.close()
 
 
+async def cleanup(wal_path: Path) -> dict[str, object]:
+    drasi = await Drasi.create("wal-recovery", wal_provider={"path": str(wal_path)})
+    try:
+        await drasi.add_python_source("orders", auto_start=False, durability=True)
+        await drasi.remove_source("orders", cleanup=True)
+        return {"mode": "cleanup"}
+    finally:
+        await drasi.close()
+
+
 async def main() -> None:
     mode, raw_path = sys.argv[1:]
-    action = {"writer": writer, "reader": reader}[mode]
+    action = {"writer": writer, "reader": reader, "cleanup": cleanup}[mode]
     print(json.dumps(await action(Path(raw_path)), sort_keys=True, separators=(",", ":")))
 
 
